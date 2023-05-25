@@ -1,6 +1,7 @@
 use actix_web::{
+  error,
   http::header::{self, HeaderValue},
-  App, HttpServer,
+  web, App, HttpResponse, HttpServer,
 };
 
 use actix_cors::Cors;
@@ -8,6 +9,7 @@ use actix_cors::Cors;
 use serde::{Deserialize, Serialize};
 
 use forum_api::app;
+use serde_json::json;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -21,7 +23,21 @@ async fn main() -> std::io::Result<()> {
     .expect("Check env file");
 
   let server = HttpServer::new(move || {
+    let json_config = web::JsonConfig::default()
+      .limit(4096)
+      .error_handler(|err, _req| {
+        error::InternalError::from_response(
+          err,
+          HttpResponse::BadRequest().json(json!({
+            "success": false,
+            "message": "Invalid data in request body"
+          })),
+        )
+        .into()
+      });
+
     App::new()
+      .app_data(json_config)
       .wrap(
         Cors::default()
           .allowed_origin_fn(|origin, _| {
