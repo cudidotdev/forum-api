@@ -1,61 +1,48 @@
 use actix_web::{
-  dev::{Service, ServiceResponse},
   http::header::{self, HeaderValue},
-  web, App, HttpServer,
+  App, HttpServer,
 };
 
-use futures_util::future::FutureExt;
+use actix_cors::Cors;
+
+use serde::{Deserialize, Serialize};
+
+use forum_api::app;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
   dotenv::dotenv().ok();
 
-  let config = config::Config::builder()
+  let config: Config = config::Config::builder()
     .add_source(config::Environment::default())
     .build()
-    .unwrap();
+    .unwrap()
+    .try_deserialize()
+    .expect("Check env file");
 
   let server = HttpServer::new(move || {
     App::new()
-      .wrap_fn(|req, srv| {
-        let origin = req
-          .headers()
-          .get("origin")
-          .unwrap_or(&HeaderValue::from_static(""))
-          .to_owned();
-
-        srv
-          .call(req)
-          .map(|res: Result<ServiceResponse, actix_web::Error>| {
-            if res.is_err() {
-              return res;
-            }
-
-            let allow_headers =
-              HeaderValue::from_static("Content-Type, Authorization, Accept, Origin");
-            let allow_methods = HeaderValue::from_static("GET, POST, PUT, PATCH, DELETE");
-            let allow_credentials = HeaderValue::from_static("true");
-
-            let mut res = res.unwrap();
-            let headers = res.headers_mut();
-
-            if [
+      .wrap(
+        Cors::default()
+          .allowed_origin_fn(|origin, _| {
+            [
               HeaderValue::from_static("http://localhost:5173"),
               HeaderValue::from_static("http://127.0.0.1:5173"),
             ]
-            .contains(&origin)
-            {
-              headers.append(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
-              headers.append(header::ACCESS_CONTROL_ALLOW_HEADERS, allow_headers);
-              headers.append(header::ACCESS_CONTROL_ALLOW_METHODS, allow_methods);
-              headers.append(header::ACCESS_CONTROL_ALLOW_CREDENTIALS, allow_credentials)
-            }
-
-            Ok(res)
+            .contains(origin)
           })
-      })
-      .route("/", web::get().to(|| async { "working" }))
+          .allowed_headers(vec![
+            header::AUTHORIZATION,
+            header::ACCEPT,
+            header::CONTENT_TYPE,
+            header::ORIGIN,
+          ])
+          .supports_credentials()
+          .max_age(3600),
+      )
+      .configure(app)
   })
+  .workers(config.threads.unwrap_or(4))
   .bind(("127.0.0.1", 8080));
 
   if let Err(e) = server {
@@ -64,4 +51,10 @@ async fn main() -> std::io::Result<()> {
   }
 
   server.unwrap().run().await
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Config {
+  pub threads: Option<usize>,
+  pub pg: deadpool_postgres::Config,
 }
