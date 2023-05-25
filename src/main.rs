@@ -6,10 +6,12 @@ use actix_web::{
 
 use actix_cors::Cors;
 
+use deadpool_postgres::Runtime;
 use serde::{Deserialize, Serialize};
 
 use forum_api::app;
 use serde_json::json;
+use tokio_postgres::NoTls;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -21,6 +23,17 @@ async fn main() -> std::io::Result<()> {
     .unwrap()
     .try_deserialize()
     .expect("Check env file");
+
+  println!("{:?}", config.pg);
+
+  let pool_res = config.pg.create_pool(Some(Runtime::Tokio1), NoTls);
+
+  if let Err(e) = pool_res {
+    eprintln!("Postgres pool creation error\n\n {e:#?}");
+    return Ok(());
+  }
+
+  let pool = pool_res.unwrap();
 
   let server = HttpServer::new(move || {
     let json_config = web::JsonConfig::default()
@@ -38,6 +51,7 @@ async fn main() -> std::io::Result<()> {
 
     App::new()
       .app_data(json_config)
+      .app_data(web::Data::new(pool.clone()))
       .wrap(
         Cors::default()
           .allowed_origin_fn(|origin, _| {
@@ -65,6 +79,8 @@ async fn main() -> std::io::Result<()> {
     println!("It seems port is already taken. Check info below\n\n{e}");
     return Err(e);
   }
+
+  println!("Server started at port 8080");
 
   server.unwrap().run().await
 }
