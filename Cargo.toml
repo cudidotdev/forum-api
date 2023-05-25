@@ -6,3 +6,22 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+actix-web = "4.3.0"
+
+#postgres
+deadpool-postgres = { version="0.10.5", features= ["serde"] }
+tokio-postgres =  { version = "0.7.8", features= ["with-time-0_3", "with-uuid-1"] }
+
+#json
+serde = { version = "1.0.152", features = ["derive"] }
+serde_json = {version = "1.0.93"}
+
+#date
+chrono = {version = "0.4.23", features= ["serde"]}
+
+#env
+config = "0.13.3"
+dotenv = "0.15.0"
+
+#async
+futures-util = "0.3.28"
