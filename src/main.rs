@@ -1,6 +1,9 @@
 use actix_web::{
   error,
-  http::header::{self, HeaderValue},
+  http::{
+    header::{self, HeaderValue},
+    Method,
+  },
   web, App, HttpResponse, HttpServer,
 };
 
@@ -23,8 +26,6 @@ async fn main() -> std::io::Result<()> {
     .unwrap()
     .try_deserialize()
     .expect("Check env file");
-
-  println!("{:?}", config.pg);
 
   let pool_res = config.pg.create_pool(Some(Runtime::Tokio1), NoTls);
 
@@ -67,6 +68,7 @@ async fn main() -> std::io::Result<()> {
             header::CONTENT_TYPE,
             header::ORIGIN,
           ])
+          .allow_any_method()
           .supports_credentials()
           .max_age(3600),
       )
