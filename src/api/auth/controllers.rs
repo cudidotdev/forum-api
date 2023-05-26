@@ -22,7 +22,7 @@ pub async fn create_account(
 
   let db_client = db_client_res.unwrap();
 
-  let body = body.into_inner().validate();
+  let body = body.into_inner().validate(&db_client).await;
 
   if let Err(err) = body {
     return HttpResponse::BadRequest().json(json!({
@@ -43,5 +43,5 @@ pub async fn create_account(
     }));
   }
 
-  HttpResponse::Ok().json(json!({ "success": true, "data": res.unwrap() }))
+  HttpResponse::Ok().json(json!({ "success": true, "id": res.unwrap() }))
 }
