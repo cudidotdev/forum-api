@@ -14,20 +14,24 @@ actix-cors = "0.6.4"
 deadpool-postgres = { version="0.10.5", features= ["serde"] }
 tokio-postgres =  { version = "0.7.8", features= ["with-time-0_3", "with-uuid-1", "with-serde_json-1"] }
 
+
 #json
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = {version = "1.0.93"}
 serde_postgres = "0.2.0"
-
+  
 #date
 chrono = {version = "0.4.23", features= ["serde"]}
 
 #env
 config = "0.13.3"
-dotenv = "0.15.0"
+dotenvy = "0.15.7"
 
 #async
 futures-util = "0.3.28"
 
 #crypto
 bcrypt = "0.14.0"
+jwt = "0.16.0"
+hmac = "0.12.1"
+sha2 = "0.10.6"

@@ -1,9 +1,6 @@
 use actix_web::{
   error,
-  http::{
-    header::{self, HeaderValue},
-    Method,
-  },
+  http::header::{self, HeaderValue},
   web, App, HttpResponse, HttpServer,
 };
 
@@ -18,7 +15,7 @@ use tokio_postgres::NoTls;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-  dotenv::dotenv().ok();
+  dotenvy::dotenv().expect("\n\nError: Add .env file in the root\n\n");
 
   let config: Config = config::Config::builder()
     .add_source(config::Environment::default())
