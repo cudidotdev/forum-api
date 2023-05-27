@@ -1,17 +1,16 @@
-use std::{env, vec};
+use std::env;
 
 use chrono::{Duration, NaiveDateTime, Utc};
 use deadpool_postgres::Client;
-use futures_util::TryStreamExt;
 use hmac::{Hmac, Mac};
 use jwt::SignWithKey;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::Sha256;
-use tokio_postgres::{Row, Statement};
+use tokio_postgres::Statement;
 
 #[derive(Serialize, Deserialize)]
-pub struct CreateAccountReq {
+pub struct CreateAccountDetails {
   first_name: Option<String>,
   last_name: Option<String>,
   user_name: Option<String>,
@@ -20,15 +19,67 @@ pub struct CreateAccountReq {
 }
 
 #[derive(Debug)]
-pub struct CreateAccount {
-  first_name: String,
-  last_name: String,
-  user_name: String,
-  password_hash: String,
+pub struct CreateAccountDetailsWithDBClient<'a> {
+  first_name: Option<String>,
+  last_name: Option<String>,
+  user_name: Option<String>,
+  password: Option<String>,
+  confirm_password: Option<String>,
+  db_client: &'a Client,
 }
 
-impl CreateAccountReq {
-  pub async fn validate(&self, db_client: &Client) -> Result<CreateAccount, Value> {
+impl CreateAccountDetails {
+  pub fn add_db_client(self, db_client: &Client) -> CreateAccountDetailsWithDBClient {
+    CreateAccountDetailsWithDBClient {
+      first_name: self.first_name,
+      last_name: self.last_name,
+      user_name: self.user_name,
+      password: self.password,
+      confirm_password: self.confirm_password,
+      db_client: db_client,
+    }
+  }
+}
+
+impl<'a> CreateAccountDetailsWithDBClient<'a> {
+  pub async fn insert_to_db(&self) -> Result<i32, Value> {
+    let stmt = self
+      .get_insert_statement()
+      .await
+      .map_err(|e| json!({ "message": format!("Postgres statement error {}", e.to_string()) }))?;
+
+    self.validate_details().await?;
+
+    self
+      .db_client
+      .query(
+        &stmt,
+        &[
+          &self.first_name,
+          &self.last_name,
+          &self.user_name,
+          &self.hash_password()?,
+          &Utc::now().naive_utc(),
+        ],
+      )
+      .await
+      .map_err(|e| json!({ "message": format!("e {}", e.to_string()) }))?
+      .get(0)
+      .ok_or("No id returned".to_owned())
+      .map_err(|e| json!({ "message": e }))?
+      .try_get("id")
+      .map_err(|e| json!({"message": e.to_string()}))
+  }
+
+  async fn get_insert_statement(&self) -> Result<Statement, tokio_postgres::Error> {
+    let stmt = "INSERT INTO users (first_name, last_name, user_name, password_hash, created_at)
+                      VALUES ($1, $2, $3, $4, $5)
+                      RETURNING id";
+
+    self.db_client.prepare(stmt).await
+  }
+
+  async fn validate_details(&self) -> Result<(), Value> {
     if self.first_name.is_none() {
       return Err(json!({
         "name": "first_name",
@@ -97,136 +148,66 @@ impl CreateAccountReq {
       }));
     }
 
-    let is_username_taken = self.is_username_taken(db_client).await;
-
-    if let Err(e) = is_username_taken {
-      return Err(json!({
+    let is_username_taken = self.is_username_taken().await.map_err(|e| {
+      json!({
         "name":"user_name",
         "message": e
-      }));
-    }
+      })
+    })?;
 
-    if is_username_taken.unwrap() {
+    if is_username_taken {
       return Err(json!({
         "name": "user_name",
         "message": "Username is already taken"
       }));
-    }
+    };
 
-    let password_hash = bcrypt::hash(password, 6);
-
-    if let Err(e) = password_hash {
-      return Err(json!({
-        "name": "password",
-        "message": format!("Error hashing password\n{}", e.to_string())
-
-      }));
-    }
-
-    Ok(CreateAccount {
-      first_name: first_name.to_owned(),
-      last_name: last_name.to_owned(),
-      user_name: user_name.to_owned(),
-      password_hash: password_hash.unwrap(),
-    })
+    Ok(())
   }
 
-  async fn is_username_taken(&self, db_client: &Client) -> Result<bool, String> {
-    if self.user_name.is_none() {
-      return Ok(true);
-    }
+  async fn is_username_taken(&self) -> Result<bool, String> {
+    let user_name = self
+      .user_name
+      .as_ref()
+      .ok_or("Username is required".to_owned())?;
 
-    let user_name = self.user_name.as_ref().unwrap();
+    let stmt = self
+      .get_username_exist_statement()
+      .await
+      .map_err(|_| "Cannot verify uniqueness of username".to_owned())?;
 
-    let stmt = self.get_username_exist_statement(db_client).await;
-
-    if stmt.is_err() {
-      return Err("Cannot verify uniqueness of username".to_owned());
-    }
-
-    let stmt = stmt.unwrap();
-
-    let res = db_client.query(&stmt, &[user_name]).await;
-
-    if res.is_err() {
-      return Err("Cannot verify uniqueness of username".to_owned());
-    }
-
-    let res = res.unwrap();
-    let row = res.get(0);
-
-    if row.is_none() {
-      return Err("Cannot verify uniqueness of username".to_owned());
-    }
-
-    row
-      .unwrap()
+    self
+      .db_client
+      .query(&stmt, &[user_name])
+      .await
+      .map_err(|_| "Cannot verify uniqueness of username".to_owned())?
+      .get(0)
+      .ok_or("Cannot verify uniqueness of username".to_owned())?
       .try_get("exists")
       .map_err(|_| "Cannot verify uniqueness of username".to_owned())
   }
 
-  async fn get_username_exist_statement(
-    &self,
-    db_client: &Client,
-  ) -> Result<Statement, tokio_postgres::Error> {
+  async fn get_username_exist_statement(&self) -> Result<Statement, tokio_postgres::Error> {
     let stmt = "SELECT EXISTS (SELECT 1 FROM users WHERE user_name = $1) as exists";
 
-    db_client.prepare(stmt).await
-  }
-}
-
-impl CreateAccount {
-  pub async fn insert_to_db(&self, db_client: &Client) -> Result<i32, String> {
-    let stmt = self.get_insert_statement(db_client).await;
-
-    if let Err(e) = stmt {
-      return Err(format!("Postgres statement error {}", e.to_string()));
-    }
-
-    let stmt = stmt.unwrap();
-
-    let exec_res = db_client
-      .query_raw(&stmt, self.get_insert_parameters())
-      .await;
-
-    if let Err(e) = exec_res {
-      return Err(format!("e {}", e.to_string()));
-    }
-
-    let res: Result<Vec<Row>, tokio_postgres::Error> = exec_res.unwrap().try_collect().await;
-
-    if let Err(e) = res {
-      return Err(format!("e {}", e.to_string()));
-    }
-
-    let res = res.unwrap();
-    let res = res.get(0).ok_or("No id returned".to_owned());
-
-    if let Err(e) = res {
-      return Err(e);
-    }
-
-    res.unwrap().try_get("id").map_err(|e| e.to_string())
+    self.db_client.prepare(stmt).await
   }
 
-  async fn get_insert_statement(
-    &self,
-    db_client: &Client,
-  ) -> Result<Statement, tokio_postgres::Error> {
-    let stmt = "INSERT INTO users (first_name, last_name, user_name, password_hash)
-                      VALUES ($1, $2, $3, $4)
-                      RETURNING id";
+  fn hash_password(&self) -> Result<String, Value> {
+    if self.password.is_none() {
+      return Err(json!({
+          "name": "password",
+          "message": "Password is required"
+      }));
+    }
 
-    db_client.prepare(stmt).await
-  }
+    bcrypt::hash(self.password.as_ref().unwrap(), 6).map_err(|e| {
+      json!({
+        "name": "password",
+        "message": format!("Error hashing password\n{}", e.to_string())
 
-  fn get_insert_parameters(&self) -> Vec<&String> {
-    vec![
-      &self.first_name,
-      &self.last_name,
-      &self.user_name,
-      &self.password_hash,
-    ]
+      })
+    })
   }
 }
 
@@ -243,7 +224,7 @@ pub struct LoginDetailsWithDBClient<'a> {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct UserDetails {
+pub struct UserAuthDetails {
   id: i32,
   user_name: String,
   expires_at: NaiveDateTime,
@@ -260,7 +241,7 @@ impl LoginDetails {
 }
 
 impl<'a> LoginDetailsWithDBClient<'a> {
-  pub async fn validate(self) -> Result<UserDetails, Value> {
+  pub async fn validate(self) -> Result<UserAuthDetails, Value> {
     if self.user_name.is_none() {
       return Err(json!({
         "name": "user_name",
@@ -280,36 +261,26 @@ impl<'a> LoginDetailsWithDBClient<'a> {
       .await
   }
 
-  async fn get_user_details(&self, user_name: &String) -> Result<UserDetails, Value> {
-    let stmt = self.get_select_statement().await;
+  async fn get_user_details(&self, user_name: &String) -> Result<UserAuthDetails, Value> {
+    let stmt = self
+      .get_select_statement()
+      .await
+      .map_err(|e| json!({ "message": format!("Postgres statement error {}", e.to_string()) }))?;
 
-    if let Err(e) = stmt {
-      return Err(json!({
-        "message": format!("Postgres statement error {}", e.to_string())
-      }));
-    }
+    let vec_row = self
+      .db_client
+      .query(&stmt, &[user_name])
+      .await
+      .map_err(|e| {
+        json!({
+          "message": e.to_string()
+        })
+      })?;
 
-    let stmt = stmt.unwrap();
-
-    let res = self.db_client.query(&stmt, &[user_name]).await;
-
-    if let Err(e) = res {
-      return Err(json!({
-        "message": e.to_string()
-      }));
-    }
-
-    let vec_row = res.unwrap();
-    let row = vec_row.get(0);
-
-    if row.is_none() {
-      return Err(json!({
-        "name":"user_name",
-        "message":"Username does not exists"
-      }));
-    }
-
-    let row = row.unwrap();
+    let row = vec_row.get(0).ok_or(json!({
+      "name":"user_name",
+      "message":"Username does not exists"
+    }))?;
 
     let id = row.try_get::<&str, i32>("id");
     let user_name = row.try_get::<&str, String>("user_name");
@@ -321,22 +292,21 @@ impl<'a> LoginDetailsWithDBClient<'a> {
       }));
     }
 
-    let res = bcrypt::verify(self.password.as_ref().unwrap(), password_hash.unwrap());
-
-    if res.is_err() {
-      return Err(json!({
+    let wrong_password = !bcrypt::verify(self.password.as_ref().unwrap(), password_hash.unwrap())
+      .map_err(|_| {
+      json!({
         "message": "Error verifying password"
-      }));
-    }
+      })
+    })?;
 
-    if !res.unwrap() {
+    if wrong_password {
       return Err(json!({
         "name": "password",
         "message": "Wrong password"
       }));
     }
 
-    Ok(UserDetails {
+    Ok(UserAuthDetails {
       id: id.unwrap(),
       user_name: user_name.unwrap(),
       expires_at: Utc::now().naive_utc() + Duration::weeks(2),
@@ -350,8 +320,8 @@ impl<'a> LoginDetailsWithDBClient<'a> {
   }
 }
 
-impl UserDetails {
-  pub fn get_jwt(&self) -> String {
+impl UserAuthDetails {
+  pub fn to_jwt(self) -> String {
     let jwt_secret = env::var("JWT_SECRET").unwrap_or("ItsPublic".to_owned());
 
     let key: Hmac<Sha256> = Hmac::new_from_slice(jwt_secret.as_bytes()).unwrap();

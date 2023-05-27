@@ -1364,11 +1364,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f028f05971fe20f512bcc679e2c10227e57809a3af86a7606304435bc8896cd6"
 dependencies = [
  "bytes 1.4.0",
+ "chrono",
  "fallible-iterator",
  "postgres-protocol 0.6.5",
  "serde",
  "serde_json",
- "time 0.3.21",
  "uuid",
 ]
 
