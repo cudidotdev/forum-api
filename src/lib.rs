@@ -5,6 +5,7 @@ use actix_web::{
 use serde_json::json;
 
 mod api;
+pub mod middleware;
 
 pub fn app(cfg: &mut ServiceConfig) {
   cfg

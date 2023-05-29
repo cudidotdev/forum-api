@@ -5,7 +5,7 @@ use actix_web::{
 use deadpool_postgres::Pool;
 use serde_json::json;
 
-use super::models;
+use super::models::{self, UserAuth};
 
 pub async fn create_account(
   body: Json<models::CreateAccountDetails>,
@@ -39,8 +39,14 @@ pub async fn create_account(
   HttpResponse::Ok().json(json!({ "success": true, "id": res.unwrap() }))
 }
 
-pub async fn login(body: Json<models::LoginDetails>, db_pool: Data<Pool>) -> HttpResponse {
+pub async fn login(
+  body: Json<models::LoginDetails>,
+  db_pool: Data<Pool>,
+  user_auth: UserAuth,
+) -> HttpResponse {
   let db_client_res = db_pool.get().await;
+
+  println!("{:#?}", user_auth.details);
 
   if let Err(e) = db_client_res {
     return HttpResponse::InternalServerError().json(json!({

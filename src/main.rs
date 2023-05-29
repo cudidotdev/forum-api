@@ -9,7 +9,7 @@ use actix_cors::Cors;
 use deadpool_postgres::Runtime;
 use serde::{Deserialize, Serialize};
 
-use forum_api::app;
+use forum_api::{app, middleware::auth::Authenticate};
 use serde_json::json;
 use tokio_postgres::NoTls;
 
@@ -69,6 +69,7 @@ async fn main() -> std::io::Result<()> {
           .supports_credentials()
           .max_age(3600),
       )
+      .wrap(Authenticate)
       .configure(app)
   })
   .workers(config.threads.unwrap_or(4))

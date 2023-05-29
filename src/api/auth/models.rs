@@ -1,9 +1,13 @@
-use std::env;
+use std::{
+  env,
+  future::{ready, Ready},
+};
 
+use actix_web::{Error, FromRequest, HttpMessage, HttpRequest};
 use chrono::{Duration, NaiveDateTime, Utc};
 use deadpool_postgres::Client;
 use hmac::{Hmac, Mac};
-use jwt::SignWithKey;
+use jwt::{SignWithKey, VerifyWithKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::Sha256;
@@ -223,11 +227,11 @@ pub struct LoginDetailsWithDBClient<'a> {
   db_client: &'a Client,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserAuthDetails {
-  id: i32,
-  user_name: String,
-  expires_at: NaiveDateTime,
+  pub id: i32,
+  pub user_name: String,
+  pub expires_at: NaiveDateTime,
 }
 
 impl LoginDetails {
@@ -321,11 +325,43 @@ impl<'a> LoginDetailsWithDBClient<'a> {
 }
 
 impl UserAuthDetails {
+  pub fn from_jwt(token: &str) -> Result<UserAuthDetails, String> {
+    let jwt_secret = env::var("JWT_SECRET").unwrap_or("ItsPublic".to_owned());
+
+    let key: Hmac<Sha256> = Hmac::new_from_slice(jwt_secret.as_bytes()).unwrap();
+
+    token
+      .verify_with_key(&key)
+      .map_err(|e| e.to_string())
+      .and_then(|u: UserAuthDetails| {
+        if Utc::now().naive_utc() >= u.expires_at {
+          Err("Token expired".to_owned())
+        } else {
+          Ok(u)
+        }
+      })
+  }
+
   pub fn to_jwt(self) -> String {
     let jwt_secret = env::var("JWT_SECRET").unwrap_or("ItsPublic".to_owned());
 
     let key: Hmac<Sha256> = Hmac::new_from_slice(jwt_secret.as_bytes()).unwrap();
 
-    self.sign_with_key(&key).unwrap()
+    self.sign_with_key(&key).unwrap_or(String::new())
+  }
+}
+
+pub struct UserAuth {
+  pub details: Option<UserAuthDetails>,
+}
+
+impl FromRequest for UserAuth {
+  type Error = Error;
+  type Future = Ready<Result<Self, Self::Error>>;
+
+  fn from_request(req: &HttpRequest, _: &mut actix_web::dev::Payload) -> Self::Future {
+    ready(Ok(UserAuth {
+      details: req.extensions().get::<UserAuthDetails>().cloned(),
+    }))
   }
 }
