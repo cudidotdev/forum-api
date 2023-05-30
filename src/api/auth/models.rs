@@ -15,8 +15,6 @@ use tokio_postgres::Statement;
 
 #[derive(Serialize, Deserialize)]
 pub struct CreateAccountDetails {
-  first_name: Option<String>,
-  last_name: Option<String>,
   user_name: Option<String>,
   password: Option<String>,
   confirm_password: Option<String>,
@@ -24,8 +22,6 @@ pub struct CreateAccountDetails {
 
 #[derive(Debug)]
 pub struct CreateAccountDetailsWithDBClient<'a> {
-  first_name: Option<String>,
-  last_name: Option<String>,
   user_name: Option<String>,
   password: Option<String>,
   confirm_password: Option<String>,
@@ -35,8 +31,6 @@ pub struct CreateAccountDetailsWithDBClient<'a> {
 impl CreateAccountDetails {
   pub fn add_db_client(self, db_client: &Client) -> CreateAccountDetailsWithDBClient {
     CreateAccountDetailsWithDBClient {
-      first_name: self.first_name,
-      last_name: self.last_name,
       user_name: self.user_name,
       password: self.password,
       confirm_password: self.confirm_password,
@@ -59,8 +53,6 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
       .query(
         &stmt,
         &[
-          &self.first_name,
-          &self.last_name,
           &self.user_name,
           &self.hash_password()?,
           &Utc::now().naive_utc(),
@@ -76,28 +68,14 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
   }
 
   async fn get_insert_statement(&self) -> Result<Statement, tokio_postgres::Error> {
-    let stmt = "INSERT INTO users (first_name, last_name, user_name, password_hash, created_at)
-                      VALUES ($1, $2, $3, $4, $5)
+    let stmt = "INSERT INTO users (user_name, password_hash, created_at)
+                      VALUES ($1, $2, $3)
                       RETURNING id";
 
     self.db_client.prepare(stmt).await
   }
 
   async fn validate_details(&self) -> Result<(), Value> {
-    if self.first_name.is_none() {
-      return Err(json!({
-        "name": "first_name",
-        "message": "First name is required"
-      }));
-    }
-
-    if self.last_name.is_none() {
-      return Err(json!({
-          "name": "last_name",
-          "message": "Last name is required"
-      }));
-    }
-
     if self.user_name.is_none() {
       return Err(json!({
           "name": "user_name",
@@ -119,24 +97,8 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
       }));
     }
 
-    let first_name = self.first_name.as_ref().unwrap();
-    let last_name = self.last_name.as_ref().unwrap();
     let user_name = self.user_name.as_ref().unwrap();
     let password = self.password.as_ref().unwrap();
-
-    if first_name.len() > 50 {
-      return Err(json!({
-        "name": "first_name",
-        "message": "Names should not be more than 50 characters"
-      }));
-    }
-
-    if last_name.len() > 50 {
-      return Err(json!({
-        "name": "last-name",
-        "message": "Names should not be more than 50 characters"
-      }));
-    }
 
     if user_name.len() > 50 {
       return Err(json!({
