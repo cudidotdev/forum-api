@@ -15,14 +15,14 @@ use tokio_postgres::Statement;
 
 #[derive(Serialize, Deserialize)]
 pub struct CreateAccountDetails {
-  user_name: Option<String>,
+  username: Option<String>,
   password: Option<String>,
   confirm_password: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct CreateAccountDetailsWithDBClient<'a> {
-  user_name: Option<String>,
+  username: Option<String>,
   password: Option<String>,
   confirm_password: Option<String>,
   db_client: &'a Client,
@@ -31,7 +31,7 @@ pub struct CreateAccountDetailsWithDBClient<'a> {
 impl CreateAccountDetails {
   pub fn add_db_client(self, db_client: &Client) -> CreateAccountDetailsWithDBClient {
     CreateAccountDetailsWithDBClient {
-      user_name: self.user_name,
+      username: self.username,
       password: self.password,
       confirm_password: self.confirm_password,
       db_client: db_client,
@@ -53,7 +53,7 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
       .query(
         &stmt,
         &[
-          &self.user_name,
+          &self.username,
           &self.hash_password()?,
           &Utc::now().naive_utc(),
         ],
@@ -68,7 +68,7 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
   }
 
   async fn get_insert_statement(&self) -> Result<Statement, tokio_postgres::Error> {
-    let stmt = "INSERT INTO users (user_name, password_hash, created_at)
+    let stmt = "INSERT INTO users (username, password_hash, created_at)
                       VALUES ($1, $2, $3)
                       RETURNING id";
 
@@ -76,10 +76,10 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
   }
 
   async fn validate_details(&self) -> Result<(), Value> {
-    if self.user_name.is_none() {
+    if self.username.is_none() {
       return Err(json!({
-          "name": "user_name",
-          "message": "User name is required"
+          "name": "username",
+          "message": "Username is required"
       }));
     }
 
@@ -97,12 +97,12 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
       }));
     }
 
-    let user_name = self.user_name.as_ref().unwrap();
+    let username = self.username.as_ref().unwrap();
     let password = self.password.as_ref().unwrap();
 
-    if user_name.len() > 50 {
+    if username.len() > 50 {
       return Err(json!({
-        "name": "user_name",
+        "name": "username",
         "message": "Names should not be more than 50 characters"
       }));
     }
@@ -116,14 +116,14 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
 
     let is_username_taken = self.is_username_taken().await.map_err(|e| {
       json!({
-        "name":"user_name",
+        "name":"username",
         "message": e
       })
     })?;
 
     if is_username_taken {
       return Err(json!({
-        "name": "user_name",
+        "name": "username",
         "message": "Username is already taken"
       }));
     };
@@ -132,8 +132,8 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
   }
 
   async fn is_username_taken(&self) -> Result<bool, String> {
-    let user_name = self
-      .user_name
+    let username = self
+      .username
       .as_ref()
       .ok_or("Username is required".to_owned())?;
 
@@ -144,7 +144,7 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
 
     self
       .db_client
-      .query(&stmt, &[user_name])
+      .query(&stmt, &[username])
       .await
       .map_err(|_| "Cannot verify uniqueness of username".to_owned())?
       .get(0)
@@ -154,7 +154,7 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
   }
 
   async fn get_username_exist_statement(&self) -> Result<Statement, tokio_postgres::Error> {
-    let stmt = "SELECT EXISTS (SELECT 1 FROM users WHERE user_name = $1) as exists";
+    let stmt = "SELECT EXISTS (SELECT 1 FROM users WHERE username = $1) as exists";
 
     self.db_client.prepare(stmt).await
   }
@@ -179,12 +179,12 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
 
 #[derive(Serialize, Deserialize)]
 pub struct LoginDetails {
-  user_name: Option<String>,
+  username: Option<String>,
   password: Option<String>,
 }
 
 pub struct LoginDetailsWithDBClient<'a> {
-  user_name: Option<String>,
+  username: Option<String>,
   password: Option<String>,
   db_client: &'a Client,
 }
@@ -192,14 +192,14 @@ pub struct LoginDetailsWithDBClient<'a> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserAuthDetails {
   pub id: i32,
-  pub user_name: String,
+  pub username: String,
   pub expires_at: NaiveDateTime,
 }
 
 impl LoginDetails {
   pub fn add_db_client(self, db_client: &Client) -> LoginDetailsWithDBClient {
     LoginDetailsWithDBClient {
-      user_name: self.user_name,
+      username: self.username,
       password: self.password,
       db_client: db_client,
     }
@@ -208,9 +208,9 @@ impl LoginDetails {
 
 impl<'a> LoginDetailsWithDBClient<'a> {
   pub async fn validate(self) -> Result<UserAuthDetails, Value> {
-    if self.user_name.is_none() {
+    if self.username.is_none() {
       return Err(json!({
-        "name": "user_name",
+        "name": "username",
         "message": "Username is required"
       }));
     }
@@ -222,12 +222,10 @@ impl<'a> LoginDetailsWithDBClient<'a> {
       }));
     }
 
-    self
-      .get_user_details(self.user_name.as_ref().unwrap())
-      .await
+    self.get_user_details(self.username.as_ref().unwrap()).await
   }
 
-  async fn get_user_details(&self, user_name: &String) -> Result<UserAuthDetails, Value> {
+  async fn get_user_details(&self, username: &String) -> Result<UserAuthDetails, Value> {
     let stmt = self
       .get_select_statement()
       .await
@@ -235,7 +233,7 @@ impl<'a> LoginDetailsWithDBClient<'a> {
 
     let vec_row = self
       .db_client
-      .query(&stmt, &[user_name])
+      .query(&stmt, &[username])
       .await
       .map_err(|e| {
         json!({
@@ -244,15 +242,15 @@ impl<'a> LoginDetailsWithDBClient<'a> {
       })?;
 
     let row = vec_row.get(0).ok_or(json!({
-      "name":"user_name",
+      "name":"username",
       "message":"Username does not exists"
     }))?;
 
     let id = row.try_get::<&str, i32>("id");
-    let user_name = row.try_get::<&str, String>("user_name");
+    let username = row.try_get::<&str, String>("username");
     let password_hash = row.try_get::<&str, &str>("password_hash");
 
-    if !(id.is_ok() && user_name.is_ok() && password_hash.is_ok()) {
+    if !(id.is_ok() && username.is_ok() && password_hash.is_ok()) {
       return Err(json!({
         "message": "Error converting from postgres to rust"
       }));
@@ -274,13 +272,13 @@ impl<'a> LoginDetailsWithDBClient<'a> {
 
     Ok(UserAuthDetails {
       id: id.unwrap(),
-      user_name: user_name.unwrap(),
+      username: username.unwrap(),
       expires_at: Utc::now().naive_utc() + Duration::weeks(2),
     })
   }
 
   async fn get_select_statement(&self) -> Result<Statement, tokio_postgres::Error> {
-    let stmt = "SELECT id, user_name, password_hash FROM users WHERE user_name = $1";
+    let stmt = "SELECT id, username, password_hash FROM users WHERE username = $1";
 
     self.db_client.prepare(stmt).await
   }
