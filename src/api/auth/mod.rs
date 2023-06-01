@@ -4,6 +4,7 @@ mod models;
 pub use models::UserAuthDetails;
 
 pub fn view(cfg: &mut ServiceConfig) {
-  cfg.route("", web::post().to(controllers::login));
+  cfg.route("", web::get().to(controllers::verify));
+  cfg.route("/sign-in", web::post().to(controllers::login));
   cfg.route("/sign-up", web::post().to(controllers::create_account));
 }

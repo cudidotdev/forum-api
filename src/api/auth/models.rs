@@ -28,6 +28,29 @@ pub struct CreateAccountDetailsWithDBClient<'a> {
   db_client: &'a Client,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct LoginDetails {
+  username: Option<String>,
+  password: Option<String>,
+}
+
+pub struct LoginDetailsWithDBClient<'a> {
+  username: Option<String>,
+  password: Option<String>,
+  db_client: &'a Client,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserAuthDetails {
+  pub id: i32,
+  pub username: String,
+  pub expires_at: NaiveDateTime,
+}
+
+pub struct UserAuth {
+  pub details: Option<UserAuthDetails>,
+}
+
 impl CreateAccountDetails {
   pub fn add_db_client(self, db_client: &Client) -> CreateAccountDetailsWithDBClient {
     CreateAccountDetailsWithDBClient {
@@ -40,13 +63,13 @@ impl CreateAccountDetails {
 }
 
 impl<'a> CreateAccountDetailsWithDBClient<'a> {
-  pub async fn insert_to_db(&self) -> Result<i32, Value> {
+  pub async fn insert_to_db(&self) -> Result<UserAuthDetails, Value> {
     let stmt = self
       .get_insert_statement()
       .await
       .map_err(|e| json!({ "message": format!("Postgres statement error {}", e.to_string()) }))?;
 
-    self.validate_details().await?;
+    let (username, _) = self.validate_details().await?;
 
     self
       .db_client
@@ -65,6 +88,11 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
       .map_err(|e| json!({ "message": e }))?
       .try_get("id")
       .map_err(|e| json!({"message": e.to_string()}))
+      .map(|id| UserAuthDetails {
+        id,
+        username,
+        expires_at: Utc::now().naive_utc() + Duration::weeks(2),
+      })
   }
 
   async fn get_insert_statement(&self) -> Result<Statement, tokio_postgres::Error> {
@@ -75,7 +103,7 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
     self.db_client.prepare(stmt).await
   }
 
-  async fn validate_details(&self) -> Result<(), Value> {
+  async fn validate_details(&self) -> Result<(String, String), Value> {
     if self.username.is_none() {
       return Err(json!({
           "name": "username",
@@ -128,7 +156,7 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
       }));
     };
 
-    Ok(())
+    Ok((username.to_owned(), password.to_owned()))
   }
 
   async fn is_username_taken(&self) -> Result<bool, String> {
@@ -177,31 +205,12 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
   }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct LoginDetails {
-  username: Option<String>,
-  password: Option<String>,
-}
-
-pub struct LoginDetailsWithDBClient<'a> {
-  username: Option<String>,
-  password: Option<String>,
-  db_client: &'a Client,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserAuthDetails {
-  pub id: i32,
-  pub username: String,
-  pub expires_at: NaiveDateTime,
-}
-
 impl LoginDetails {
   pub fn add_db_client(self, db_client: &Client) -> LoginDetailsWithDBClient {
     LoginDetailsWithDBClient {
       username: self.username,
       password: self.password,
-      db_client: db_client,
+      db_client,
     }
   }
 }
@@ -309,10 +318,6 @@ impl UserAuthDetails {
 
     self.sign_with_key(&key).unwrap_or(String::new())
   }
-}
-
-pub struct UserAuth {
-  pub details: Option<UserAuthDetails>,
 }
 
 impl FromRequest for UserAuth {
