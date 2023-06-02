@@ -7,7 +7,7 @@ use actix_web::{
 };
 use futures_util::future::LocalBoxFuture;
 
-use crate::api::auth::UserAuthDetails;
+use crate::api::UserAuthDetails;
 
 pub struct Authenticate;
 pub struct AuthenticateMiddleware<S> {

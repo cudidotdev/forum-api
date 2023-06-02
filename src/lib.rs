@@ -9,7 +9,8 @@ pub mod middleware;
 
 pub fn app(cfg: &mut ServiceConfig) {
   cfg
-    .service(web::scope("/auth").configure(api::auth::view))
+    .service(web::scope("/auth").configure(api::auth))
+    .service(web::scope("/posts").configure(api::post))
     .default_service(web::to(|| async {
       HttpResponse::NotFound().json(json!({
         "success": false,

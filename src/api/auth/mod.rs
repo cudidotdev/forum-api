@@ -1,7 +1,6 @@
 use actix_web::web::{self, ServiceConfig};
 mod controllers;
-mod models;
-pub use models::UserAuthDetails;
+pub mod models;
 
 pub fn view(cfg: &mut ServiceConfig) {
   cfg.route("", web::get().to(controllers::verify));
