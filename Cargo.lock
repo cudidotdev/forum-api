@@ -646,6 +646,8 @@ dependencies = [
  "futures-util",
  "hmac 0.12.1",
  "jwt",
+ "lazy_static",
+ "regex",
  "serde",
  "serde_json",
  "serde_postgres",

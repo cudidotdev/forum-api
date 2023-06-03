@@ -35,3 +35,7 @@ bcrypt = "0.14.0"
 jwt = "0.16.0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
+
+#string
+regex = "1.8.3"
+lazy_static = "1.4.0"
