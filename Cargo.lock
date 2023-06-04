@@ -647,6 +647,7 @@ dependencies = [
  "hmac 0.12.1",
  "jwt",
  "lazy_static",
+ "postgres-types 0.2.5",
  "rand 0.8.5",
  "regex",
  "serde",
@@ -1314,6 +1315,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26072860ba924cbfa98ea39c8c19b4dd6a4a25423dbdf219c1eca91aa0cf6964"
 
 [[package]]
+name = "postgres-derive"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "070ffaa78859c779b19f9358ce035480479cf2619e968593ffbe72abcb6e0fcf"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.18",
+]
+
+[[package]]
 name = "postgres-protocol"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1369,6 +1381,7 @@ dependencies = [
  "bytes 1.4.0",
  "chrono",
  "fallible-iterator",
+ "postgres-derive",
  "postgres-protocol 0.6.5",
  "serde",
  "serde_json",

@@ -4,7 +4,9 @@ use crate::api::UserAuthDetails;
 use actix_web::http::StatusCode;
 use chrono::Utc;
 use deadpool_postgres::Client;
+use futures_util::future;
 use lazy_static::lazy_static;
+use postgres_types::{FromSql, ToSql};
 use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -89,17 +91,25 @@ impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, NotValidated> {
 
     let mut all_under_51 = true;
 
-    self.topics.iter_mut().for_each(|s| {
-      *s = s.trim().to_owned();
-      s.make_ascii_lowercase();
-      s.get_mut(0..1).map(|a| a.make_ascii_uppercase());
+    self.topics = self
+      .topics
+      .iter()
+      .map(|s| {
+        let mut s = String::from(s.trim());
 
-      if RE.is_ok() {
-        *s = String::from(RE.as_ref().unwrap().replace_all(s, "").to_string());
-      }
+        s.make_ascii_lowercase();
+        s.get_mut(0..1).map(|a| a.make_ascii_uppercase());
 
-      all_under_51 = all_under_51 && s.len() <= 50;
-    });
+        if RE.is_ok() {
+          s = String::from(RE.as_ref().unwrap().replace_all(s.as_str(), "").to_string());
+        }
+
+        all_under_51 = all_under_51 && s.len() <= 50;
+
+        s
+      })
+      .filter(|s| s.len() > 0)
+      .collect();
 
     if !all_under_51 {
       return Err((
@@ -142,6 +152,21 @@ impl<'a, U, V> CreatePostDetails<DBClient<'a>, U, V> {
 
 impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, Validated> {
   pub async fn create_post(&self) -> Result<i32, (StatusCode, Value)> {
+    let post_id = self.insert_post().await?;
+
+    let topic_ids = future::try_join_all(self.topics.iter().map(|t| self.upsert_topic(t))).await?;
+
+    future::try_join_all(
+      topic_ids
+        .iter()
+        .map(|id| self.insert_post_and_topic_ids(&post_id, id)),
+    )
+    .await?;
+
+    Ok(post_id)
+  }
+
+  async fn insert_post(&self) -> Result<i32, (StatusCode, Value)> {
     let stmt = self.get_create_post_statment().await.map_err(|e| {
       (
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -149,7 +174,7 @@ impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, Validated> {
       )
     })?;
 
-    let post_id = self
+    self
       .get_db_client()
       .query(&stmt, &[&self.title, &self.body, &Utc::now().naive_utc()])
       .await
@@ -170,22 +195,99 @@ impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, Validated> {
           StatusCode::INTERNAL_SERVER_ERROR,
           json!({ "message": e.to_string() }),
         )
-      })?;
-
-    Ok(post_id)
+      })
   }
 
-  fn get_random_color(&self) -> &str {
+  async fn upsert_topic(&self, name: &String) -> Result<i32, (StatusCode, Value)> {
+    let stmt = self.get_upsert_topic_statement().await.map_err(|e| {
+      (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({"message": e.to_string()}),
+      )
+    })?;
+
+    self
+      .get_db_client()
+      .query(
+        &stmt,
+        &[name, &self.get_random_color(), &Utc::now().naive_utc()],
+      )
+      .await
+      .map_err(|e| {
+        (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          json!({ "message": e.to_string() }),
+        )
+      })?
+      .get(0)
+      .ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({ "message": "No id returned" }),
+      ))?
+      .try_get("id")
+      .map_err(|e| {
+        (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          json!({ "message": e.to_string() }),
+        )
+      })
+  }
+
+  async fn insert_post_and_topic_ids(
+    &self,
+    post_id: &i32,
+    topic_id: &i32,
+  ) -> Result<(), (StatusCode, Value)> {
+    let stmt = "INSERT INTO posts_topics_relationship (post_id, topic_id) VALUES ($1, $2)";
+
+    let stmt = self.get_db_client().prepare(stmt).await.map_err(|e| {
+      (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({ "message": e.to_string() }),
+      )
+    })?;
+
+    self
+      .get_db_client()
+      .query(&stmt, &[post_id, topic_id])
+      .await
+      .map_err(|e| {
+        (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          json!({"message": e.to_string()}),
+        )
+      })
+      .map(|_| ())
+  }
+
+  fn get_random_color(&self) -> Color {
     let a = rand::thread_rng().gen_range(0..6);
 
     match a {
-      0 => "green",
-      1 => "blue",
-      2 => "red",
-      3 => "yellow",
-      4 => "purple",
-      5 => "violet",
-      _ => "red",
+      0 => Color::Green,
+      1 => Color::Blue,
+      2 => Color::Red,
+      3 => Color::Yellow,
+      4 => Color::Purple,
+      5 => Color::Violet,
+      _ => Color::Red,
     }
   }
+}
+
+#[derive(Debug, ToSql, FromSql)]
+#[postgres(name = "color")]
+enum Color {
+  #[postgres(name = "green")]
+  Green,
+  #[postgres(name = "blue")]
+  Blue,
+  #[postgres(name = "red")]
+  Red,
+  #[postgres(name = "yellow")]
+  Yellow,
+  #[postgres(name = "purple")]
+  Purple,
+  #[postgres(name = "violet")]
+  Violet,
 }
