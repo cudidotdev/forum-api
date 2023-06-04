@@ -1,5 +1,5 @@
 use actix_web::{web, HttpResponse};
-use deadpool_postgres::Pool;
+use deadpool_postgres::{Client, Pool};
 use serde_json::json;
 
 use super::models::{self, NoDBClient, NoUserDetails, NotValidated};
@@ -32,7 +32,7 @@ pub async fn create_post(
     }));
   }
 
-  let db_client = db_client_res.unwrap();
+  let db_client: Client = db_client_res.unwrap();
 
   let res = body
     .into_inner()

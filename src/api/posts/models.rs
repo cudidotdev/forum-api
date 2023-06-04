@@ -4,14 +4,14 @@ use crate::api::UserAuthDetails;
 use actix_web::http::StatusCode;
 use chrono::Utc;
 use deadpool_postgres::Client;
-use futures_util::future;
+use futures_util::{future, TryStreamExt};
 use lazy_static::lazy_static;
 use postgres_types::{FromSql, ToSql};
 use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio_postgres::Statement;
+use tokio_postgres::{Row, Statement};
 
 #[derive(Serialize, Deserialize)]
 pub struct CreatePostDetails<D, U, V> {
@@ -34,6 +34,37 @@ pub struct UserDetails<'a>(&'a UserAuthDetails);
 #[derive(Default)]
 pub struct NotValidated;
 pub struct Validated;
+
+#[derive(Debug, ToSql, FromSql)]
+#[postgres(name = "color")]
+enum Color {
+  #[postgres(name = "green")]
+  Green,
+  #[postgres(name = "blue")]
+  Blue,
+  #[postgres(name = "red")]
+  Red,
+  #[postgres(name = "yellow")]
+  Yellow,
+  #[postgres(name = "purple")]
+  Purple,
+  #[postgres(name = "violet")]
+  Violet,
+}
+
+impl<D, U, V> CreatePostDetails<D, U, V> {
+  fn get_random_color(&self) -> Color {
+    match rand::thread_rng().gen_range(0..6) {
+      0 => Color::Green,
+      1 => Color::Blue,
+      2 => Color::Red,
+      3 => Color::Yellow,
+      4 => Color::Purple,
+      5 => Color::Violet,
+      _ => Color::Red,
+    }
+  }
+}
 
 impl<U, V> CreatePostDetails<NoDBClient, U, V> {
   pub fn add_db_client(self, db_client: &Client) -> CreatePostDetails<DBClient, U, V> {
@@ -129,88 +160,111 @@ impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, NotValidated> {
   }
 }
 
-impl<'a, U, V> CreatePostDetails<DBClient<'a>, U, V> {
+impl<'a, U> CreatePostDetails<DBClient<'a>, U, Validated> {
   fn get_db_client(&self) -> &'a Client {
     self.db_client.0
   }
 
-  async fn get_create_post_statment(&self) -> Result<Statement, tokio_postgres::Error> {
+  async fn get_create_post_statment(&self) -> Result<Statement, (StatusCode, Value)> {
     let stmt = "INSERT INTO posts(title, body, created_at) VALUES ($1, $2, $3) RETURNING id";
-    self.get_db_client().prepare(stmt).await
+    self.get_db_client().prepare(stmt).await.map_err(|e| {
+      (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({"message": e.to_string()}),
+      )
+    })
   }
 
-  async fn get_upsert_topic_statement(&self) -> Result<Statement, tokio_postgres::Error> {
-    let stmt = "INSERT INTO topics(name, color, created_at)
-                      VALUES ($1, $2, $3)
-                      ON CONFLICT (name) DO UPDATE
-                      SET name = EXCLUDED.name
-                      RETURNING id";
+  async fn get_insert_topics_statement(&self) -> Result<Statement, (StatusCode, Value)> {
+    let mut stmt = "INSERT INTO topics (name, color, created_at) VALUES ".to_owned();
 
-    self.get_db_client().prepare(stmt).await
+    let mut i = 0;
+    let n = self.topics.len() * 3;
+
+    while i < n {
+      stmt.push_str(&format!("(${}, ${}, ${})", i + 1, i + 2, i + 3));
+      if i + 3 != n {
+        stmt.push_str(",")
+      }
+      i = i + 3;
+    }
+
+    stmt += "ON CONFLICT (name) DO NOTHING";
+
+    self.get_db_client().prepare(&stmt).await.map_err(|e| {
+      (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({"message": e.to_string()}),
+      )
+    })
+  }
+
+  fn get_insert_topics_params(&self) -> Vec<Box<dyn ToSql + Sync>> {
+    let mut v: Vec<Box<dyn ToSql + Sync>> = Vec::new();
+
+    self.topics.iter().for_each(|t| {
+      v.push(Box::new(t.to_owned()));
+      v.push(Box::new(self.get_random_color()));
+      v.push(Box::new(Utc::now().naive_utc()));
+    });
+
+    v
+  }
+
+  async fn get_insert_post_and_topics_ids_statement(
+    &self,
+  ) -> Result<Statement, (StatusCode, Value)> {
+    let mut stmt = "INSERT INTO posts_topics_relationship (post_id, topic_id) (SELECT $1, id FROM topics WHERE name IN (".to_owned();
+
+    let mut i = 1;
+    let n = self.topics.len() + 1;
+
+    while i < n {
+      i += 1;
+      stmt += &format!("${}", i);
+      if i != n {
+        stmt += ",";
+      }
+    }
+
+    stmt += "))";
+
+    self.get_db_client().prepare(&stmt).await.map_err(|e| {
+      (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({"message": e.to_string()}),
+      )
+    })
+  }
+
+  fn get_insert_post_and_topics_ids_params(&self, post_id: &i32) -> Vec<Box<dyn ToSql + Sync>> {
+    let mut v: Vec<Box<dyn ToSql + Sync>> = vec![Box::new(*post_id)];
+
+    self.topics.iter().for_each(|t_id| {
+      v.push(Box::new(String::from(t_id)));
+    });
+
+    v
   }
 }
 
 impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, Validated> {
   pub async fn create_post(&self) -> Result<i32, (StatusCode, Value)> {
-    let post_id = self.insert_post().await?;
+    let res = future::join(self.insert_post(), self.insert_topics()).await;
 
-    let topic_ids = future::try_join_all(self.topics.iter().map(|t| self.upsert_topic(t))).await?;
+    let post_id = res.0?;
 
-    future::try_join_all(
-      topic_ids
-        .iter()
-        .map(|id| self.insert_post_and_topic_ids(&post_id, id)),
-    )
-    .await?;
+    self.insert_post_and_topics_ids(post_id).await?;
 
     Ok(post_id)
   }
 
   async fn insert_post(&self) -> Result<i32, (StatusCode, Value)> {
-    let stmt = self.get_create_post_statment().await.map_err(|e| {
-      (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        json!({ "message": e.to_string() }),
-      )
-    })?;
-
-    self
-      .get_db_client()
-      .query(&stmt, &[&self.title, &self.body, &Utc::now().naive_utc()])
-      .await
-      .map_err(|e| {
-        (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          json!({ "message": e.to_string() }),
-        )
-      })?
-      .get(0)
-      .ok_or((
-        StatusCode::INTERNAL_SERVER_ERROR,
-        json!({ "message": "No id returned" }),
-      ))?
-      .try_get("id")
-      .map_err(|e| {
-        (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          json!({ "message": e.to_string() }),
-        )
-      })
-  }
-
-  async fn upsert_topic(&self, name: &String) -> Result<i32, (StatusCode, Value)> {
-    let stmt = self.get_upsert_topic_statement().await.map_err(|e| {
-      (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        json!({"message": e.to_string()}),
-      )
-    })?;
-
     self
       .get_db_client()
       .query(
-        &stmt,
-        &[name, &self.get_random_color(), &Utc::now().naive_utc()],
+        &self.get_create_post_statment().await?,
+        &[&self.title, &self.body, &Utc::now().naive_utc()],
       )
       .await
       .map_err(|e| {
@@ -221,7 +275,7 @@ impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, Validated> {
       })?
       .get(0)
       .ok_or((
-        StatusCode::INTERNAL_SERVER_ERROR,
+        StatusCode::NOT_FOUND,
         json!({ "message": "No id returned" }),
       ))?
       .try_get("id")
@@ -233,23 +287,21 @@ impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, Validated> {
       })
   }
 
-  async fn insert_post_and_topic_ids(
-    &self,
-    post_id: &i32,
-    topic_id: &i32,
-  ) -> Result<(), (StatusCode, Value)> {
-    let stmt = "INSERT INTO posts_topics_relationship (post_id, topic_id) VALUES ($1, $2)";
-
-    let stmt = self.get_db_client().prepare(stmt).await.map_err(|e| {
-      (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        json!({ "message": e.to_string() }),
-      )
-    })?;
-
+  async fn insert_topics(&self) -> Result<(), (StatusCode, Value)> {
     self
       .get_db_client()
-      .query(&stmt, &[post_id, topic_id])
+      .query_raw(
+        &self.get_insert_topics_statement().await?,
+        self.get_insert_topics_params(),
+      )
+      .await
+      .map_err(|e| {
+        (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          json!({"message": e.to_string()}),
+        )
+      })?
+      .try_collect::<Vec<Row>>()
       .await
       .map_err(|e| {
         (
@@ -260,34 +312,20 @@ impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, Validated> {
       .map(|_| ())
   }
 
-  fn get_random_color(&self) -> Color {
-    let a = rand::thread_rng().gen_range(0..6);
-
-    match a {
-      0 => Color::Green,
-      1 => Color::Blue,
-      2 => Color::Red,
-      3 => Color::Yellow,
-      4 => Color::Purple,
-      5 => Color::Violet,
-      _ => Color::Red,
-    }
+  async fn insert_post_and_topics_ids(&self, post_id: i32) -> Result<(), (StatusCode, Value)> {
+    self
+      .get_db_client()
+      .query_raw(
+        &self.get_insert_post_and_topics_ids_statement().await?,
+        self.get_insert_post_and_topics_ids_params(&post_id),
+      )
+      .await
+      .map_err(|e| {
+        (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          json!({"message": e.to_string()}),
+        )
+      })
+      .map(|_| ())
   }
-}
-
-#[derive(Debug, ToSql, FromSql)]
-#[postgres(name = "color")]
-enum Color {
-  #[postgres(name = "green")]
-  Green,
-  #[postgres(name = "blue")]
-  Blue,
-  #[postgres(name = "red")]
-  Red,
-  #[postgres(name = "yellow")]
-  Yellow,
-  #[postgres(name = "purple")]
-  Purple,
-  #[postgres(name = "violet")]
-  Violet,
 }
