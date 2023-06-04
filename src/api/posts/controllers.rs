@@ -2,13 +2,13 @@ use actix_web::{web, HttpResponse};
 use deadpool_postgres::Pool;
 use serde_json::json;
 
-use super::models::{self, NoDBClient, NoUserDetails, NotFormated};
+use super::models::{self, NoDBClient, NoUserDetails, NotValidated};
 use crate::api::UserAuth;
 
 pub async fn create_post(
   user_details: UserAuth,
   db_pool: web::Data<Pool>,
-  body: web::Json<models::CreatePostDetails<NoDBClient, NoUserDetails, NotFormated>>,
+  body: web::Json<models::CreatePostDetails<NoDBClient, NoUserDetails, NotValidated>>,
 ) -> HttpResponse {
   if user_details.details.is_none() {
     return HttpResponse::Forbidden().json(json!({
@@ -36,11 +36,14 @@ pub async fn create_post(
 
   let res = body
     .into_inner()
-    .format()
     .add_db_client(&db_client)
     .add_user_details(&user_details)
-    .create_post()
-    .await;
+    .validate();
+
+  let res = match res {
+    Ok(p) => p.create_post().await,
+    Err(e) => Err(e),
+  };
 
   match res {
     Ok(id) => HttpResponse::Ok().json(json!({

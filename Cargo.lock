@@ -647,6 +647,7 @@ dependencies = [
  "hmac 0.12.1",
  "jwt",
  "lazy_static",
+ "rand 0.8.5",
  "regex",
  "serde",
  "serde_json",
