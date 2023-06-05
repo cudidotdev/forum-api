@@ -102,17 +102,31 @@ impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, NotValidated> {
     self.title = self.title.trim().to_owned();
     self.body = self.body.trim().to_owned();
 
+    if self.title.len() == 0 {
+      return Err((
+        StatusCode::BAD_REQUEST,
+        json!({"name": "title", "message": "Post title has no content"}),
+      ));
+    }
+
+    if self.body.len() == 0 {
+      return Err((
+        StatusCode::BAD_REQUEST,
+        json!({"name": "body", "message": "Post body has no content"}),
+      ));
+    }
+
     if self.title.len() > 100 {
       return Err((
         StatusCode::BAD_REQUEST,
-        json!({"message": "Title should not have more 100 characters"}),
+        json!({"name": "title", "message": "Post title should not have more 100 characters"}),
       ));
     }
 
     if self.body.len() > 1000 {
       return Err((
         StatusCode::BAD_REQUEST,
-        json!({"message": "Title should not have more 1000 characters"}),
+        json!({"name": "body", "message": "Post body should not have more 1000 characters"}),
       ));
     }
 
@@ -146,6 +160,13 @@ impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, NotValidated> {
       return Err((
         StatusCode::BAD_REQUEST,
         json!({"message": "Topic names should not be more than 50 characters"}),
+      ));
+    }
+
+    if self.topics.len() == 0 {
+      return Err((
+        StatusCode::BAD_REQUEST,
+        json!({"name": "topics", "message": "Please add topics"}),
       ));
     }
 

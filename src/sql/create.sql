@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMP NOT NULL
 );
 
+CREATE UNIQUE INDEX username_lower_unique_index ON users (LOWER(username));
+
 CREATE TABLE IF NOT EXISTS posts (
   id SERIAL PRIMARY KEY,
   title VARCHAR(100) NOT NULL,

@@ -128,6 +128,13 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
     let username = self.username.as_ref().unwrap();
     let password = self.password.as_ref().unwrap();
 
+    if username.len() == 0 {
+      return Err(json!({
+          "name": "username",
+          "message": "Username is required"
+      }));
+    }
+
     if username.len() > 50 {
       return Err(json!({
         "name": "username",
@@ -182,7 +189,7 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
   }
 
   async fn get_username_exist_statement(&self) -> Result<Statement, tokio_postgres::Error> {
-    let stmt = "SELECT EXISTS (SELECT 1 FROM users WHERE username = $1) as exists";
+    let stmt = "SELECT EXISTS (SELECT 1 FROM users WHERE LOWER(username) = LOWER($1)) as exists";
 
     self.db_client.prepare(stmt).await
   }
@@ -287,7 +294,7 @@ impl<'a> LoginDetailsWithDBClient<'a> {
   }
 
   async fn get_select_statement(&self) -> Result<Statement, tokio_postgres::Error> {
-    let stmt = "SELECT id, username, password_hash FROM users WHERE username = $1";
+    let stmt = "SELECT id, username, password_hash FROM users WHERE LOWER(username) = LOWER($1)";
 
     self.db_client.prepare(stmt).await
   }
