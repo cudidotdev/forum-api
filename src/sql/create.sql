@@ -11,7 +11,12 @@ CREATE TABLE IF NOT EXISTS posts (
   id SERIAL PRIMARY KEY,
   title VARCHAR(100) NOT NULL,
   body VARCHAR(1000) NOT NULL,
-  created_at TIMESTAMP NOT NULL
+  user_id INT NOT NULL,
+  created_at TIMESTAMP NOT NULL,
+
+  FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON DELETE CASCADE
 );
 
 CREATE TYPE color AS ENUM ('green', 'red', 'blue', 'yellow', 'violet', 'purple');

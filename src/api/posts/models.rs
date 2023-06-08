@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::api::UserAuthDetails;
 use actix_web::http::StatusCode;
-use chrono::Utc;
+use chrono::{NaiveDateTime, Utc};
 use deadpool_postgres::Client;
 use futures_util::{future, TryStreamExt};
 use lazy_static::lazy_static;
@@ -181,13 +181,20 @@ impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, NotValidated> {
   }
 }
 
+impl<'a, D, V> CreatePostDetails<D, UserDetails<'a>, V> {
+  fn get_user_details(&self) -> &UserAuthDetails {
+    self.user_details.0
+  }
+}
+
 impl<'a, U> CreatePostDetails<DBClient<'a>, U, Validated> {
   fn get_db_client(&self) -> &'a Client {
     self.db_client.0
   }
 
   async fn get_create_post_statment(&self) -> Result<Statement, (StatusCode, Value)> {
-    let stmt = "INSERT INTO posts(title, body, created_at) VALUES ($1, $2, $3) RETURNING id";
+    let stmt =
+      "INSERT INTO posts(title, body, user_id, created_at) VALUES ($1, $2, $3, $4) RETURNING id";
     self.get_db_client().prepare(stmt).await.map_err(|e| {
       (
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -285,7 +292,12 @@ impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, Validated> {
       .get_db_client()
       .query(
         &self.get_create_post_statment().await?,
-        &[&self.title, &self.body, &Utc::now().naive_utc()],
+        &[
+          &self.title,
+          &self.body,
+          &self.get_user_details().id,
+          &Utc::now().naive_utc(),
+        ],
       )
       .await
       .map_err(|e| {
@@ -366,10 +378,18 @@ pub struct FetchPosts<D, U, V> {
 }
 
 #[derive(Debug, Serialize)]
-pub struct FetchPostsResponse {
+struct FetchPostsResponse {
   title: String,
   body: String,
   topics: Vec<String>,
+  author: PostAuthor,
+  created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct PostAuthor {
+  id: i32,
+  name: String,
 }
 
 impl<D, U> FetchPosts<D, U, NotValidated> {
@@ -422,9 +442,10 @@ impl<'a, U, V> FetchPosts<DBClient<'a>, U, V> {
 
 impl<'a> FetchPosts<DBClient<'a>, NoUserDetails, Validated> {
   pub async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
-    let stmt = "SELECT p.title, p.body, ARRAY_AGG(t.name) topics FROM posts p 
+    let stmt = "SELECT p.title, p.body, u.id author_id, u.username author_name, p.created_at, ARRAY_AGG(t.name) topics FROM posts p 
      INNER JOIN posts_topics_relationship r ON p.id = r.post_id 
-     INNER JOIN topics t ON t.id = r.topic_id GROUP BY p.id";
+     INNER JOIN topics t ON t.id = r.topic_id
+     INNER JOIN users u ON u.id = p.user_id GROUP BY p.id, u.username, u.id";
 
     self.get_db_client().prepare(stmt).await.map_err(|e| {
       (
@@ -471,13 +492,23 @@ impl FetchPostsResponse {
     let title = row.try_get::<&str, String>("title");
     let body = row.try_get::<&str, String>("body");
     let topics = row.try_get::<&str, Vec<String>>("topics");
+    let author_name = row.try_get::<&str, String>("author_name");
+    let author_id = row.try_get::<&str, i32>("author_id");
+    let created_at = row.try_get::<&str, NaiveDateTime>("created_at");
 
-    match (title, body, topics) {
-      (Ok(title), Ok(body), Ok(topics)) => Ok(FetchPostsResponse {
-        title,
-        body,
-        topics,
-      }),
+    match (title, body, topics, author_id, author_name, created_at) {
+      (Ok(title), Ok(body), Ok(topics), Ok(author_id), Ok(author_name), Ok(created_at)) => {
+        Ok(FetchPostsResponse {
+          title,
+          body,
+          topics,
+          author: PostAuthor {
+            id: author_id,
+            name: author_name,
+          },
+          created_at,
+        })
+      }
       _ => Err((
         StatusCode::INTERNAL_SERVER_ERROR,
         json!({"message":"Error converting postgres types" }),
