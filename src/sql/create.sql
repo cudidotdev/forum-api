@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS post_comments (
   post_id INT NOT NULL,
   user_id INT NOT NULL,
   comment_id INT,
+  created_at TIMESTAMP NOT NULL,
 
   FOREIGN KEY (post_id)
     REFERENCES posts(id)

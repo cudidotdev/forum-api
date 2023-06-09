@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
+use chrono::Utc;
 use deadpool_postgres::Client;
-use futures_util::sink::With;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio_postgres::Statement;
@@ -146,8 +146,8 @@ impl<'a, U> CreateComment<WithDBClient<'a>, U, NotValidated> {
 
 impl<'a, U> CreateComment<WithDBClient<'a>, U, Validated> {
   async fn get_insert_statement(&self) -> Result<Statement, Value> {
-    let stmt = "INSERT INTO post_comments (post_id, user_id, comment_id, body)
-      VALUES ($1, $2, $3, $4) RETURNING id";
+    let stmt = "INSERT INTO post_comments (post_id, user_id, comment_id, body, created_at)
+      VALUES ($1, $2, $3, $4, $5) RETURNING id";
 
     self
       .get_db_client()
@@ -168,6 +168,7 @@ impl<'a> CreateComment<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
           &self.get_user_details().id,
           &self.comment_id,
           &self.body,
+          &Utc::now().naive_utc(),
         ],
       )
       .await
