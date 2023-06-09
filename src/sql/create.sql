@@ -57,3 +57,19 @@ CREATE TABLE IF NOT EXISTS saved_posts (
     REFERENCES posts(id)
     ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS post_comments (
+  id SERIAL PRIMARY KEY,
+  body VARCHAR(500) NOT NULL,
+  post_id INT NOT NULL,
+  user_id INT NOT NULL,
+  comment_id INT,
+
+  FOREIGN KEY (post_id)
+    REFERENCES posts(id)
+    ON DELETE CASCADE,
+
+  FOREIGN KEY (comment_id)
+    REFERENCES post_comments(id)
+    ON DELETE CASCADE
+)

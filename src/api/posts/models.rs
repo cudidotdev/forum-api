@@ -1,6 +1,11 @@
 use std::marker::PhantomData;
 
-use crate::api::UserAuthDetails;
+use crate::api::{
+  handler_utils::{
+    NoDBClient, NoUserDetails, NotValidated, Validated, WithDBClient, WithUserDetails,
+  },
+  UserAuthDetails,
+};
 use actix_web::http::StatusCode;
 use chrono::{NaiveDateTime, Utc};
 use deadpool_postgres::Client;
@@ -25,15 +30,6 @@ pub struct CreatePostDetails<D, U, V> {
   #[serde(skip_deserializing)]
   validated: PhantomData<V>,
 }
-#[derive(Default)]
-pub struct NoDBClient;
-pub struct DBClient<'a>(&'a Client);
-#[derive(Default)]
-pub struct NoUserDetails;
-pub struct UserDetails<'a>(&'a UserAuthDetails);
-#[derive(Default)]
-pub struct NotValidated;
-pub struct Validated;
 
 #[derive(Debug, ToSql, FromSql)]
 #[postgres(name = "color")]
@@ -67,12 +63,12 @@ impl<D, U, V> CreatePostDetails<D, U, V> {
 }
 
 impl<U, V> CreatePostDetails<NoDBClient, U, V> {
-  pub fn add_db_client(self, db_client: &Client) -> CreatePostDetails<DBClient, U, V> {
+  pub fn add_db_client(self, db_client: &Client) -> CreatePostDetails<WithDBClient, U, V> {
     CreatePostDetails {
       title: self.title,
       topics: self.topics,
       body: self.body,
-      db_client: DBClient(db_client),
+      db_client: WithDBClient(db_client),
       user_details: self.user_details,
       validated: PhantomData,
     }
@@ -83,22 +79,25 @@ impl<D, V> CreatePostDetails<D, NoUserDetails, V> {
   pub fn add_user_details(
     self,
     user_details: &UserAuthDetails,
-  ) -> CreatePostDetails<D, UserDetails, V> {
+  ) -> CreatePostDetails<D, WithUserDetails, V> {
     CreatePostDetails {
       title: self.title,
       topics: self.topics,
       body: self.body,
       db_client: self.db_client,
-      user_details: UserDetails(user_details),
+      user_details: WithUserDetails(user_details),
       validated: PhantomData,
     }
   }
 }
 
-impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, NotValidated> {
+impl<'a> CreatePostDetails<WithDBClient<'a>, WithUserDetails<'a>, NotValidated> {
   pub fn validate(
     mut self,
-  ) -> Result<CreatePostDetails<DBClient<'a>, UserDetails<'a>, Validated>, (StatusCode, Value)> {
+  ) -> Result<
+    CreatePostDetails<WithDBClient<'a>, WithUserDetails<'a>, Validated>,
+    (StatusCode, Value),
+  > {
     self.title = self.title.trim().to_owned();
     self.body = self.body.trim().to_owned();
 
@@ -181,13 +180,13 @@ impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, NotValidated> {
   }
 }
 
-impl<'a, D, V> CreatePostDetails<D, UserDetails<'a>, V> {
+impl<'a, D, V> CreatePostDetails<D, WithUserDetails<'a>, V> {
   fn get_user_details(&self) -> &UserAuthDetails {
     self.user_details.0
   }
 }
 
-impl<'a, U> CreatePostDetails<DBClient<'a>, U, Validated> {
+impl<'a, U> CreatePostDetails<WithDBClient<'a>, U, Validated> {
   fn get_db_client(&self) -> &'a Client {
     self.db_client.0
   }
@@ -276,7 +275,7 @@ impl<'a, U> CreatePostDetails<DBClient<'a>, U, Validated> {
   }
 }
 
-impl<'a> CreatePostDetails<DBClient<'a>, UserDetails<'a>, Validated> {
+impl<'a> CreatePostDetails<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
   pub async fn create_post(&self) -> Result<i32, (StatusCode, Value)> {
     let res = future::join(self.insert_post(), self.insert_topics()).await;
 
@@ -408,13 +407,13 @@ impl<D, U> FetchPosts<D, U, NotValidated> {
 }
 
 impl<U, V> FetchPosts<NoDBClient, U, V> {
-  pub fn add_db_client(self, db_client: &Client) -> FetchPosts<DBClient, U, V> {
+  pub fn add_db_client(self, db_client: &Client) -> FetchPosts<WithDBClient, U, V> {
     FetchPosts {
       sort: self.sort,
       limit: self.limit,
       page: self.page,
       topics: self.topics,
-      db_client: DBClient(db_client),
+      db_client: WithDBClient(db_client),
       user_details: self.user_details,
       validated: PhantomData,
     }
@@ -422,32 +421,35 @@ impl<U, V> FetchPosts<NoDBClient, U, V> {
 }
 
 impl<D, V> FetchPosts<D, NoUserDetails, V> {
-  pub fn add_user_details(self, user_details: &UserAuthDetails) -> FetchPosts<D, UserDetails, V> {
+  pub fn add_user_details(
+    self,
+    user_details: &UserAuthDetails,
+  ) -> FetchPosts<D, WithUserDetails, V> {
     FetchPosts {
       sort: self.sort,
       limit: self.limit,
       page: self.page,
       topics: self.topics,
       db_client: self.db_client,
-      user_details: UserDetails(user_details),
+      user_details: WithUserDetails(user_details),
       validated: PhantomData,
     }
   }
 }
 
-impl<'a, D, V> FetchPosts<D, UserDetails<'a>, V> {
+impl<'a, D, V> FetchPosts<D, WithUserDetails<'a>, V> {
   pub fn get_user_details(&self) -> &'a UserAuthDetails {
     self.user_details.0
   }
 }
 
-impl<'a, U, V> FetchPosts<DBClient<'a>, U, V> {
+impl<'a, U, V> FetchPosts<WithDBClient<'a>, U, V> {
   pub fn get_db_client(&self) -> &'a Client {
     self.db_client.0
   }
 }
 
-impl<'a> FetchPosts<DBClient<'a>, NoUserDetails, Validated> {
+impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
   pub async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
     let stmt = "SELECT p.title, p.body, u.id author_id, u.username author_name, p.created_at, ARRAY_AGG(t.name) topics FROM posts p 
      INNER JOIN posts_topics_relationship r ON p.id = r.post_id 
@@ -488,7 +490,7 @@ impl<'a> FetchPosts<DBClient<'a>, NoUserDetails, Validated> {
   }
 }
 
-impl<'a> FetchPosts<DBClient<'a>, UserDetails<'a>, Validated> {
+impl<'a> FetchPosts<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
   async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
     let stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name, 
       (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(t.name) topics FROM posts p 

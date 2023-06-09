@@ -5,8 +5,12 @@ use actix_web::{
 use deadpool_postgres::{Client, Pool};
 use serde_json::json;
 
-use super::models::{self, NoDBClient, NoUserDetails, NotValidated};
-use crate::api::UserAuth;
+use super::models;
+
+use crate::api::{
+  handler_utils::{NoDBClient, NoUserDetails, NotValidated},
+  UserAuth,
+};
 
 pub async fn create_post(
   user_details: UserAuth,

@@ -2,9 +2,12 @@ use actix_web::{web, HttpResponse};
 use deadpool_postgres::Pool;
 use serde_json::json;
 
-use crate::api::UserAuth;
+use crate::api::{
+  handler_utils::{NoDBClient, NoUserDetails, NotValidated},
+  UserAuth,
+};
 
-use super::models::SavePost;
+use super::models::{CreateComment, SavePost};
 
 pub async fn save_post(
   user_details: UserAuth,
@@ -51,6 +54,67 @@ pub async fn save_post(
       "success": false,
       "message": e["message"],
       "error": e
+    })),
+  }
+}
+
+pub async fn create_comment(
+  user_details: UserAuth,
+  post_id: web::Path<i32>,
+  body: web::Json<CreateComment<NoDBClient, NoUserDetails, NotValidated>>,
+  db_pool: web::Data<Pool>,
+) -> HttpResponse {
+  if user_details.details.is_none() {
+    return HttpResponse::Forbidden().json(json!({
+      "success": false,
+      "message": "User not signed in",
+      "error": {
+        "name": "re-auth",
+        "message": "User not signed in"
+      }
+    }));
+  };
+
+  let user_details = user_details.details.unwrap();
+  let post_id = post_id.into_inner();
+
+  let db_client_res = db_pool.get().await;
+
+  if let Err(e) = db_client_res {
+    return HttpResponse::InternalServerError().json(json!({
+      "success": false,
+      "message": e.to_string(),
+    }));
+  }
+
+  let db_client = db_client_res.unwrap();
+
+  let body = body
+    .into_inner()
+    .add_details(post_id, &db_client, &user_details)
+    .validate()
+    .await;
+
+  if let Err(e) = body {
+    return HttpResponse::BadRequest().json(json!({
+      "success": false,
+      "message": e["message"],
+      "error": e
+    }));
+  }
+
+  match body.unwrap().exec().await {
+    Ok(id) => HttpResponse::Ok().json(json!({
+      "success": true,
+      "data": {
+        "id": id
+      }
+    })),
+
+    Err(v) => HttpResponse::InternalServerError().json(json!({
+      "success": false,
+      "message": v["message"],
+      "error": v
     })),
   }
 }
