@@ -383,6 +383,7 @@ struct FetchPostsResponse {
   body: String,
   topics: Vec<String>,
   author: PostAuthor,
+  saved: bool,
   created_at: NaiveDateTime,
 }
 
@@ -434,6 +435,12 @@ impl<D, V> FetchPosts<D, NoUserDetails, V> {
   }
 }
 
+impl<'a, D, V> FetchPosts<D, UserDetails<'a>, V> {
+  pub fn get_user_details(&self) -> &'a UserAuthDetails {
+    self.user_details.0
+  }
+}
+
 impl<'a, U, V> FetchPosts<DBClient<'a>, U, V> {
   pub fn get_db_client(&self) -> &'a Client {
     self.db_client.0
@@ -482,8 +489,48 @@ impl<'a> FetchPosts<DBClient<'a>, NoUserDetails, Validated> {
 }
 
 impl<'a> FetchPosts<DBClient<'a>, UserDetails<'a>, Validated> {
+  async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
+    let stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name, 
+      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(t.name) topics FROM posts p 
+      INNER JOIN  posts_topics_relationship r ON p.id = r.post_id 
+      INNER JOIN topics t ON t.id = r.topic_id 
+      INNER JOIN users u ON u.id = p.user_id 
+      LEFT JOIN saved_posts s ON s.post_id = p.id AND s.user_id = $1 
+      GROUP BY p.id, u.username, u.id, s.post_id";
+
+    self.get_db_client().prepare(stmt).await.map_err(|e| {
+      (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({"message": e.to_string()}),
+      )
+    })
+  }
   pub async fn fetch_posts(&self) -> Result<Value, (StatusCode, Value)> {
-    todo!();
+    let res = self
+      .get_db_client()
+      .query(
+        &self.get_select_statement().await?,
+        &[&self.get_user_details().id],
+      )
+      .await
+      .map_err(|e| {
+        (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          json!({
+            "message": e.to_string()
+          }),
+        )
+      })?
+      .into_iter()
+      .map(|r| FetchPostsResponse::from_row(&r))
+      .collect::<Result<Vec<_>, _>>()?;
+
+    serde_json::to_value(res).map_err(|e| {
+      (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({"message": e.to_string()}),
+      )
+    })
   }
 }
 
@@ -494,6 +541,7 @@ impl FetchPostsResponse {
     let topics = row.try_get::<&str, Vec<String>>("topics");
     let author_name = row.try_get::<&str, String>("author_name");
     let author_id = row.try_get::<&str, i32>("author_id");
+    let saved = row.try_get::<&str, bool>("saved");
     let created_at = row.try_get::<&str, NaiveDateTime>("created_at");
 
     match (title, body, topics, author_id, author_name, created_at) {
@@ -507,6 +555,7 @@ impl FetchPostsResponse {
             name: author_name,
           },
           created_at,
+          saved: saved.unwrap_or(false),
         })
       }
       _ => Err((
