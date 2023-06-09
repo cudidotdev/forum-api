@@ -41,4 +41,19 @@ CREATE TABLE IF NOT EXISTS posts_topics_relationship (
   FOREIGN KEY (topic_id)
     REFERENCES topics(id)
     ON DELETE CASCADE
-)
+);
+
+CREATE TABLE IF NOT EXISTS saved_posts (
+  user_id INT NOT NULL,
+  post_id INT NOT NULL,
+
+  PRIMARY KEY(user_id, post_id),
+
+  FOREIGN KEY (user_id) 
+    REFERENCES users(id)
+    ON DELETE CASCADE,
+
+  FOREIGN KEY (post_id)
+    REFERENCES posts(id)
+    ON DELETE CASCADE
+);
