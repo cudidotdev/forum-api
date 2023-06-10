@@ -378,12 +378,15 @@ pub struct FetchPosts<D, U, V> {
 
 #[derive(Debug, Serialize)]
 struct FetchPostsResponse {
+  id: i32,
   title: String,
   body: String,
   topics: Vec<String>,
   author: PostAuthor,
   saved: bool,
   created_at: NaiveDateTime,
+  comments: i64,
+  saves: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -451,10 +454,14 @@ impl<'a, U, V> FetchPosts<WithDBClient<'a>, U, V> {
 
 impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
   pub async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
-    let stmt = "SELECT p.title, p.body, u.id author_id, u.username author_name, p.created_at, ARRAY_AGG(t.name) topics FROM posts p 
+    let stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name, 
+     p.created_at, ARRAY_AGG(DISTINCT t.name) topics, COUNT(c.post_id) comments, COUNT(DISTINCT s.*) saves FROM posts p 
      INNER JOIN posts_topics_relationship r ON p.id = r.post_id 
      INNER JOIN topics t ON t.id = r.topic_id
-     INNER JOIN users u ON u.id = p.user_id GROUP BY p.id, u.username, u.id";
+     INNER JOIN users u ON u.id = p.user_id
+     LEFT JOIN post_comments c ON p.id = c.post_id
+     LEFT JOIN saved_posts s ON s.post_id = p.id
+     GROUP BY p.id, u.id";
 
     self.get_db_client().prepare(stmt).await.map_err(|e| {
       (
@@ -493,12 +500,14 @@ impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
 impl<'a> FetchPosts<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
   async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
     let stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name, 
-      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(t.name) topics FROM posts p 
+      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name) topics, COUNT(c.post_id) comments, COUNT(DISTINCT ss.*) saves FROM posts p 
       INNER JOIN  posts_topics_relationship r ON p.id = r.post_id 
       INNER JOIN topics t ON t.id = r.topic_id 
       INNER JOIN users u ON u.id = p.user_id 
       LEFT JOIN saved_posts s ON s.post_id = p.id AND s.user_id = $1 
-      GROUP BY p.id, u.username, u.id, s.post_id";
+      LEFT JOIN saved_posts ss ON ss.post_id = p.id
+      LEFT JOIN post_comments c ON p.id = c.post_id
+      GROUP BY p.id, u.id, s.post_id";
 
     self.get_db_client().prepare(stmt).await.map_err(|e| {
       (
@@ -538,28 +547,52 @@ impl<'a> FetchPosts<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
 
 impl FetchPostsResponse {
   fn from_row(row: &Row) -> Result<FetchPostsResponse, (StatusCode, Value)> {
+    let id = row.try_get::<&str, i32>("id");
     let title = row.try_get::<&str, String>("title");
     let body = row.try_get::<&str, String>("body");
     let topics = row.try_get::<&str, Vec<String>>("topics");
     let author_name = row.try_get::<&str, String>("author_name");
     let author_id = row.try_get::<&str, i32>("author_id");
+    let comments = row.try_get::<&str, i64>("comments");
+    let saves = row.try_get::<&str, i64>("saves");
     let saved = row.try_get::<&str, bool>("saved");
     let created_at = row.try_get::<&str, NaiveDateTime>("created_at");
 
-    match (title, body, topics, author_id, author_name, created_at) {
-      (Ok(title), Ok(body), Ok(topics), Ok(author_id), Ok(author_name), Ok(created_at)) => {
-        Ok(FetchPostsResponse {
-          title,
-          body,
-          topics,
-          author: PostAuthor {
-            id: author_id,
-            name: author_name,
-          },
-          created_at,
-          saved: saved.unwrap_or(false),
-        })
-      }
+    match (
+      id,
+      title,
+      body,
+      topics,
+      author_id,
+      comments,
+      saves,
+      author_name,
+      created_at,
+    ) {
+      (
+        Ok(id),
+        Ok(title),
+        Ok(body),
+        Ok(topics),
+        Ok(author_id),
+        Ok(comments),
+        Ok(saves),
+        Ok(author_name),
+        Ok(created_at),
+      ) => Ok(FetchPostsResponse {
+        id,
+        title,
+        body,
+        topics,
+        author: PostAuthor {
+          id: author_id,
+          name: author_name,
+        },
+        created_at,
+        saved: saved.unwrap_or(false),
+        comments,
+        saves,
+      }),
       _ => Err((
         StatusCode::INTERNAL_SERVER_ERROR,
         json!({"message":"Error converting postgres types" }),
