@@ -20,7 +20,7 @@ pub struct SavePost<'a> {
 }
 
 impl<'a> SavePost<'a> {
-  pub async fn run(&self) -> Result<(), Value> {
+  pub async fn exec(&self) -> Result<(), Value> {
     self
       .db_client
       .query(
@@ -32,8 +32,31 @@ impl<'a> SavePost<'a> {
       .map(|_| ())
   }
 
+  pub async fn exec_reverse(&self) -> Result<(), Value> {
+    self
+      .db_client
+      .query(
+        &self.get_delete_statement().await?,
+        &[&self.user_details.id, &self.id],
+      )
+      .await
+      .map_err(|e| json!({"message": e.to_string()}))
+      .map(|_| ())
+  }
+
   pub async fn get_insert_statement(&self) -> Result<Statement, Value> {
-    let stmt = "INSERT INTO saved_posts (user_id, post_id) VALUES ($1, $2)";
+    let stmt = "INSERT INTO saved_posts (user_id, post_id) VALUES ($1, $2)
+      ON CONFLICT (user_id, post_id) DO NOTHING";
+
+    self
+      .db_client
+      .prepare(stmt)
+      .await
+      .map_err(|e| json!({ "message":e.to_string()  }))
+  }
+
+  pub async fn get_delete_statement(&self) -> Result<Statement, Value> {
+    let stmt = "DELETE FROM saved_posts WHERE user_id = $1 AND post_id = $2";
 
     self
       .db_client
