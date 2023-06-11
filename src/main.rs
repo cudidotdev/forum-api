@@ -47,8 +47,20 @@ async fn main() -> std::io::Result<()> {
         .into()
       });
 
+    let query_config = web::QueryConfig::default().error_handler(|err, _req| {
+      error::InternalError::from_response(
+        err,
+        HttpResponse::BadRequest().json(json!({
+          "success": false,
+          "message": "Invalid data in query string"
+        })),
+      )
+      .into()
+    });
+
     App::new()
       .app_data(json_config)
+      .app_data(query_config)
       .app_data(web::Data::new(pool.clone()))
       .wrap(
         Cors::default()
