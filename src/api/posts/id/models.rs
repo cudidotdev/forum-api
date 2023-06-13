@@ -207,7 +207,6 @@ impl<'a> CreateComment<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
 #[derive(Serialize, Deserialize)]
 pub struct FetchComments<D, V> {
   sort: Option<Sort>,
-  limit: Option<i64>,
   page: Option<i64>,
   topics: Option<Vec<String>>,
   #[serde(skip_deserializing)]
@@ -229,19 +228,12 @@ enum Sort {
 
 impl<'a> FetchComments<WithDBClient<'a>, NotValidated> {
   pub fn validate(self) -> Result<FetchComments<WithDBClient<'a>, Validated>, Value> {
-    if let Some(s) = self.limit {
-      if s > 50 {
-        return Err(json!({"message": "Cannot retrieve more than 50 posts"}));
-      }
-    }
-
     if self.post_id == i32::default() {
       return Err(json!({"message": "Post id not added"}));
     }
 
     Ok(FetchComments {
       sort: self.sort,
-      limit: self.limit,
       page: self.page,
       topics: self.topics,
       post_id: self.post_id,
@@ -259,7 +251,6 @@ impl FetchComments<NoDBClient, NotValidated> {
   ) -> FetchComments<WithDBClient, NotValidated> {
     FetchComments {
       sort: self.sort,
-      limit: self.limit,
       page: self.page,
       topics: self.topics,
       post_id,
@@ -279,7 +270,9 @@ impl<'a, V> FetchComments<WithDBClient<'a>, V> {
       SELECT id, body, comment_id, created_at, user_id FROM post_comments WHERE post_id = $1
       UNION ALL
       SELECT b.id, b.body, b.comment_id, b.created_at, b.user_id FROM t INNER JOIN post_comments b ON t.comment_id = b.id)
-      SELECT t.*, (COUNT(t.id) - 1) replies, u.username author_name, u.id author_id FROM t INNER JOIN users u ON u.id = t.user_id GROUP BY t.id, t.comment_id, t.created_at, t.body, t.user_id, u.id";
+      SELECT t.*, (COUNT(t.id) - 1) replies, u.username author_name, u.id author_id FROM t 
+      INNER JOIN users u ON u.id = t.user_id 
+      GROUP BY t.id, t.comment_id, t.created_at, t.body, t.user_id, u.id";
 
     self
       .get_db_client()
@@ -303,7 +296,7 @@ impl<'a> FetchComments<WithDBClient<'a>, Validated> {
       .map(|r| FetchCommentsResponse::from_row(&r))
       .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(FetchCommentsResponse::parse(&res))
+    Ok(FetchCommentsResponse::parse(&res, &self.sort))
   }
 }
 
@@ -323,6 +316,7 @@ pub struct FetchCommentsResponseParsed {
   body: String,
   author: CommentAuthor,
   created_at: NaiveDateTime,
+  reply_count: i64,
   replies: Vec<FetchCommentsResponseParsed>,
 }
 #[derive(Debug, Clone, Serialize)]
@@ -373,10 +367,13 @@ impl FetchCommentsResponse {
     }
   }
 
-  fn parse(data: &Vec<FetchCommentsResponse>) -> Vec<FetchCommentsResponseParsed> {
+  fn parse(
+    data: &Vec<FetchCommentsResponse>,
+    sort: &Option<Sort>,
+  ) -> Vec<FetchCommentsResponseParsed> {
     let mut vec = Vec::new();
 
-    FetchCommentsResponse::add_reply(&mut vec, data, None);
+    FetchCommentsResponse::add_reply(&mut vec, data, None, sort);
 
     vec
   }
@@ -385,6 +382,7 @@ impl FetchCommentsResponse {
     vec: &mut Vec<FetchCommentsResponseParsed>,
     data: &Vec<FetchCommentsResponse>,
     comment_id: Option<i32>,
+    sort: &Option<Sort>,
   ) {
     let res =
       data
@@ -395,12 +393,23 @@ impl FetchCommentsResponse {
           body: d.body.clone(),
           author: d.author.clone(),
           created_at: d.created_at,
+          reply_count: d.replies,
           replies: vec![],
         });
 
     for mut d in res {
-      FetchCommentsResponse::add_reply(&mut d.replies, data, Some(d.id));
+      FetchCommentsResponse::add_reply(&mut d.replies, data, Some(d.id), sort);
       vec.push(d);
+    }
+
+    match sort {
+      Some(s) => match s {
+        Sort::Highest => vec.sort_by(|a, b| b.reply_count.cmp(&a.reply_count)),
+        Sort::Lowest => vec.sort_by(|a, b| a.reply_count.cmp(&b.reply_count)),
+        Sort::Latest => vec.sort_by(|a, b| b.created_at.cmp(&a.created_at)),
+        Sort::Oldest => vec.sort_by(|a, b| a.created_at.cmp(&b.created_at)),
+      },
+      None => vec.sort_by(|a, b| b.created_at.cmp(&a.created_at)),
     }
   }
 }
