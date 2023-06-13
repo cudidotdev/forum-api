@@ -7,7 +7,7 @@ use crate::api::{
   UserAuth,
 };
 
-use super::models::{CreateComment, SavePost};
+use super::models::{CreateComment, FetchComments, SavePost};
 
 pub async fn save_post(
   user_details: UserAuth,
@@ -164,6 +164,53 @@ pub async fn create_comment(
       "success": false,
       "message": v["message"],
       "error": v
+    })),
+  }
+}
+
+pub async fn fetch_comments(
+  post_id: web::Path<i32>,
+  query: web::Query<FetchComments<NoDBClient, NotValidated>>,
+  db_pool: web::Data<Pool>,
+) -> HttpResponse {
+  let db_client_res = db_pool.get().await;
+
+  if let Err(e) = db_client_res {
+    return HttpResponse::InternalServerError().json(json!({
+      "success": false,
+      "message": e.to_string(),
+    }));
+  }
+
+  let db_client = db_client_res.unwrap();
+
+  let post_id = post_id.into_inner();
+
+  let query = query
+    .into_inner()
+    .add_details(&db_client, post_id)
+    .validate();
+
+  if let Err(v) = query {
+    return HttpResponse::BadRequest().json(json!({
+      "success": false,
+      "message": v["message"],
+      "error":v
+    }));
+  }
+
+  let res = query.unwrap().fetch_comments().await;
+
+  match res {
+    Ok(d) => HttpResponse::Ok().json(json!({
+      "success": true,
+      "data": d
+    })),
+
+    Err(v) => HttpResponse::InternalServerError().json(json!({
+      "success": false,
+      "message": v["message"],
+      "error":v
     })),
   }
 }

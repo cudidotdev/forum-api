@@ -1,10 +1,11 @@
 use std::marker::PhantomData;
 
-use chrono::Utc;
+use chrono::{NaiveDateTime, Utc};
 use deadpool_postgres::Client;
+use futures_util::sink::With;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio_postgres::Statement;
+use tokio_postgres::{Row, Statement};
 
 use crate::api::{
   handler_utils::{
@@ -200,5 +201,206 @@ impl<'a> CreateComment<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
       .ok_or(json!({"message": "No response from db"}))?
       .try_get("id")
       .map_err(|e| json!({"message": e.to_string()}))
+  }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FetchComments<D, V> {
+  sort: Option<Sort>,
+  limit: Option<i64>,
+  page: Option<i64>,
+  topics: Option<Vec<String>>,
+  #[serde(skip_deserializing)]
+  post_id: i32,
+  #[serde(skip_deserializing)]
+  db_client: D,
+  #[serde(skip_deserializing)]
+  validated: PhantomData<V>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Sort {
+  Latest,
+  Oldest,
+  Highest,
+  Lowest,
+}
+
+impl<'a> FetchComments<WithDBClient<'a>, NotValidated> {
+  pub fn validate(self) -> Result<FetchComments<WithDBClient<'a>, Validated>, Value> {
+    if let Some(s) = self.limit {
+      if s > 50 {
+        return Err(json!({"message": "Cannot retrieve more than 50 posts"}));
+      }
+    }
+
+    if self.post_id == i32::default() {
+      return Err(json!({"message": "Post id not added"}));
+    }
+
+    Ok(FetchComments {
+      sort: self.sort,
+      limit: self.limit,
+      page: self.page,
+      topics: self.topics,
+      post_id: self.post_id,
+      db_client: self.db_client,
+      validated: PhantomData,
+    })
+  }
+}
+
+impl FetchComments<NoDBClient, NotValidated> {
+  pub fn add_details(
+    self,
+    db_client: &Client,
+    post_id: i32,
+  ) -> FetchComments<WithDBClient, NotValidated> {
+    FetchComments {
+      sort: self.sort,
+      limit: self.limit,
+      page: self.page,
+      topics: self.topics,
+      post_id,
+      db_client: WithDBClient(db_client),
+      validated: PhantomData,
+    }
+  }
+}
+
+impl<'a, V> FetchComments<WithDBClient<'a>, V> {
+  fn get_db_client(&self) -> &'a Client {
+    self.db_client.0
+  }
+
+  async fn get_fetch_comments_statement(&self) -> Result<Statement, Value> {
+    let stmt = "WITH RECURSIVE t(id, body, comment_id, created_at, user_id) AS (
+      SELECT id, body, comment_id, created_at, user_id FROM post_comments WHERE post_id = $1
+      UNION ALL
+      SELECT b.id, b.body, b.comment_id, b.created_at, b.user_id FROM t INNER JOIN post_comments b ON t.comment_id = b.id)
+      SELECT t.*, (COUNT(t.id) - 1) replies, u.username author_name, u.id author_id FROM t INNER JOIN users u ON u.id = t.user_id GROUP BY t.id, t.comment_id, t.created_at, t.body, t.user_id, u.id";
+
+    self
+      .get_db_client()
+      .prepare(stmt)
+      .await
+      .map_err(|e| json!({"message": e.to_string()}))
+  }
+}
+
+impl<'a> FetchComments<WithDBClient<'a>, Validated> {
+  pub async fn fetch_comments(&self) -> Result<Vec<FetchCommentsResponseParsed>, Value> {
+    let res = self
+      .get_db_client()
+      .query(
+        &self.get_fetch_comments_statement().await?,
+        &[&self.post_id],
+      )
+      .await
+      .map_err(|e| json!({"message": e.to_string()}))?
+      .into_iter()
+      .map(|r| FetchCommentsResponse::from_row(&r))
+      .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(FetchCommentsResponse::parse(&res))
+  }
+}
+
+#[derive(Debug, Serialize)]
+struct FetchCommentsResponse {
+  id: i32,
+  body: String,
+  comment_id: Option<i32>,
+  author: CommentAuthor,
+  created_at: NaiveDateTime,
+  replies: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FetchCommentsResponseParsed {
+  id: i32,
+  body: String,
+  author: CommentAuthor,
+  created_at: NaiveDateTime,
+  replies: Vec<FetchCommentsResponseParsed>,
+}
+#[derive(Debug, Clone, Serialize)]
+struct CommentAuthor {
+  id: i32,
+  name: String,
+}
+
+impl FetchCommentsResponse {
+  fn from_row(r: &Row) -> Result<FetchCommentsResponse, Value> {
+    let id = r.try_get::<&str, i32>("id");
+    let body = r.try_get::<&str, String>("body");
+    let comment_id = r.try_get::<&str, Option<i32>>("comment_id");
+    let author_id = r.try_get::<&str, i32>("author_id");
+    let author_name = r.try_get::<&str, String>("author_name");
+    let replies = r.try_get::<&str, i64>("replies");
+    let created_at = r.try_get::<&str, NaiveDateTime>("created_at");
+
+    match (
+      id,
+      body,
+      comment_id,
+      author_id,
+      author_name,
+      replies,
+      created_at,
+    ) {
+      (
+        Ok(id),
+        Ok(body),
+        Ok(comment_id),
+        Ok(author_id),
+        Ok(author_name),
+        Ok(replies),
+        Ok(created_at),
+      ) => Ok(FetchCommentsResponse {
+        id,
+        body,
+        comment_id,
+        replies,
+        created_at,
+        author: CommentAuthor {
+          id: author_id,
+          name: author_name,
+        },
+      }),
+      _ => Err(json!({"message": "Error converting postgres to rust type"})),
+    }
+  }
+
+  fn parse(data: &Vec<FetchCommentsResponse>) -> Vec<FetchCommentsResponseParsed> {
+    let mut vec = Vec::new();
+
+    FetchCommentsResponse::add_reply(&mut vec, data, None);
+
+    vec
+  }
+
+  fn add_reply(
+    vec: &mut Vec<FetchCommentsResponseParsed>,
+    data: &Vec<FetchCommentsResponse>,
+    comment_id: Option<i32>,
+  ) {
+    let res =
+      data
+        .iter()
+        .filter(|d| d.comment_id == comment_id)
+        .map(|d| FetchCommentsResponseParsed {
+          id: d.id,
+          body: d.body.clone(),
+          author: d.author.clone(),
+          created_at: d.created_at,
+          replies: vec![],
+        });
+
+    for mut d in res {
+      FetchCommentsResponse::add_reply(&mut d.replies, data, Some(d.id));
+      vec.push(d);
+    }
   }
 }
