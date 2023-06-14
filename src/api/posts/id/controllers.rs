@@ -7,7 +7,42 @@ use crate::api::{
   UserAuth,
 };
 
-use super::models::{CreateComment, FetchComments, SavePost};
+use super::models::{CreateComment, FetchComments, FetchPost, SavePost};
+
+pub async fn fetch_post(id: web::Path<i32>, db_pool: web::Data<Pool>) -> HttpResponse {
+  let id = id.into_inner();
+
+  let db_client_res = db_pool.get().await;
+
+  if let Err(e) = db_client_res {
+    return HttpResponse::InternalServerError().json(json!({
+      "success": false,
+      "message": e.to_string(),
+    }));
+  }
+
+  let db_client = db_client_res.unwrap();
+
+  let res = FetchPost {
+    db_client: &db_client,
+    id,
+  }
+  .exec()
+  .await;
+
+  match res {
+    Ok(post) => HttpResponse::Ok().json(json!({
+      "success": true,
+      "data": post
+    })),
+
+    Err((s, e)) => HttpResponse::Ok().status(s).json(json!({
+      "success": false,
+      "message": e["message"],
+      "error": e
+    })),
+  }
+}
 
 pub async fn save_post(
   user_details: UserAuth,

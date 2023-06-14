@@ -386,7 +386,7 @@ enum Sort {
 }
 
 #[derive(Debug, Serialize)]
-struct FetchPostsResponse {
+pub struct FetchPostsResponse {
   id: i32,
   title: String,
   body: String,
@@ -598,7 +598,7 @@ impl<'a> FetchPosts<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
 }
 
 impl FetchPostsResponse {
-  fn from_row(row: &Row) -> Result<FetchPostsResponse, (StatusCode, Value)> {
+  pub fn from_row(row: &Row) -> Result<FetchPostsResponse, (StatusCode, Value)> {
     let id = row.try_get::<&str, i32>("id");
     let title = row.try_get::<&str, String>("title");
     let body = row.try_get::<&str, String>("body");
