@@ -17,6 +17,7 @@ use crate::api::{
 
 pub struct FetchPost<'a> {
   pub db_client: &'a Client,
+  pub user_id: Option<i32>,
   pub id: i32,
 }
 
@@ -24,7 +25,10 @@ impl<'a> FetchPost<'a> {
   pub async fn exec(&self) -> Result<FetchPostsResponse, (StatusCode, Value)> {
     self
       .db_client
-      .query(&self.get_select_statement().await?, &[&self.id])
+      .query(
+        &self.get_select_statement().await?,
+        &[&self.id, &self.user_id.unwrap_or_default()],
+      )
       .await
       .map_err(|e| {
         (
@@ -42,11 +46,11 @@ impl<'a> FetchPost<'a> {
 
   async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
     let stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name, 
-      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name) topics, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT ss.*) saves FROM posts p 
+      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name||':'||t.color) topics, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT ss.*) saves FROM posts p 
       INNER JOIN  posts_topics_relationship r ON p.id = r.post_id 
       INNER JOIN topics t ON t.id = r.topic_id 
       INNER JOIN users u ON u.id = p.user_id 
-      LEFT JOIN saved_posts s ON s.post_id = p.id AND s.user_id = $1 
+      LEFT JOIN saved_posts s ON s.post_id = p.id AND s.user_id = $2 
       LEFT JOIN saved_posts ss ON ss.post_id = p.id
       LEFT JOIN post_comments c ON p.id = c.post_id
       WHERE p.id = $1

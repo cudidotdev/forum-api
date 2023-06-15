@@ -9,7 +9,11 @@ use crate::api::{
 
 use super::models::{CreateComment, FetchComments, FetchPost, SavePost};
 
-pub async fn fetch_post(id: web::Path<i32>, db_pool: web::Data<Pool>) -> HttpResponse {
+pub async fn fetch_post(
+  id: web::Path<i32>,
+  db_pool: web::Data<Pool>,
+  user_details: UserAuth,
+) -> HttpResponse {
   let id = id.into_inner();
 
   let db_client_res = db_pool.get().await;
@@ -25,6 +29,7 @@ pub async fn fetch_post(id: web::Path<i32>, db_pool: web::Data<Pool>) -> HttpRes
 
   let res = FetchPost {
     db_client: &db_client,
+    user_id: user_details.details.map(|e| e.id),
     id,
   }
   .exec()
@@ -39,7 +44,11 @@ pub async fn fetch_post(id: web::Path<i32>, db_pool: web::Data<Pool>) -> HttpRes
     Err((s, e)) => HttpResponse::Ok().status(s).json(json!({
       "success": false,
       "message": e["message"],
-      "error": e
+      "error": {
+        "status": s.as_u16(),
+        "message": e["message"],
+        "name": e["name"]
+      }
     })),
   }
 }
