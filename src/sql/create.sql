@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS posts (
     ON DELETE CASCADE
 );
 
-CREATE TYPE color AS ENUM ('green', 'red', 'blue', 'yellow', 'violet', 'purple');
+CREATE TYPE color AS ENUM ('green', 'red', 'blue', 'yellow', 'purple');
 
 CREATE TABLE IF NOT EXISTS topics (
   id SERIAL PRIMARY KEY,

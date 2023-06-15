@@ -44,19 +44,16 @@ enum Color {
   Yellow,
   #[postgres(name = "purple")]
   Purple,
-  #[postgres(name = "violet")]
-  Violet,
 }
 
 impl<D, U, V> CreatePostDetails<D, U, V> {
   fn get_random_color(&self) -> Color {
-    match rand::thread_rng().gen_range(0..6) {
+    match rand::thread_rng().gen_range(0..5) {
       0 => Color::Green,
       1 => Color::Blue,
-      2 => Color::Red,
-      3 => Color::Yellow,
-      4 => Color::Purple,
-      5 => Color::Violet,
+      2 => Color::Yellow,
+      3 => Color::Purple,
+      4 => Color::Red,
       _ => Color::Red,
     }
   }
@@ -390,7 +387,7 @@ pub struct FetchPostsResponse {
   id: i32,
   title: String,
   body: String,
-  topics: Vec<String>,
+  topics: Vec<(String, String)>,
   author: PostAuthor,
   saved: bool,
   created_at: NaiveDateTime,
@@ -473,7 +470,7 @@ impl<'a, U, V> FetchPosts<WithDBClient<'a>, U, V> {
 impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
   pub async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
     let mut stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name, 
-     p.created_at, ARRAY_AGG(DISTINCT t.name) topics, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT s.*) saves FROM posts p 
+     p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) topics, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT s.*) saves FROM posts p 
      INNER JOIN posts_topics_relationship r ON p.id = r.post_id 
      INNER JOIN topics t ON t.id = r.topic_id
      INNER JOIN users u ON u.id = p.user_id
@@ -485,10 +482,10 @@ impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
       Some(s) => match s {
         Sort::Latest => stmt += " ORDER BY created_at DESC",
         Sort::Oldest => stmt += " ORDER BY created_at ASC",
-        Sort::Highest => stmt = "WITH t(id, title, body, author_id, author_name, created_at, topics, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score DESC",
-        Sort::Lowest => stmt = "WITH t(id, title, body, author_id, author_name, created_at, topics, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score ASC",
+        Sort::Highest => stmt = "WITH t(id, title, body, author_id, author_name, created_at, topics, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score DESC, created_at DESC ",
+        Sort::Lowest => stmt = "WITH t(id, title, body, author_id, author_name, created_at, topics, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score ASC, created_at DESC ",
       },
-      _ => stmt += " ORDER BY created_at DESC",
+      None => stmt += " ORDER BY created_at DESC",
     }
 
     stmt += " LIMIT $1 OFFSET $2";
@@ -536,7 +533,7 @@ impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
 impl<'a> FetchPosts<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
   async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
     let mut stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name, 
-      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name) topics, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT ss.*) saves FROM posts p 
+      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) topics, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT ss.*) saves FROM posts p 
       INNER JOIN  posts_topics_relationship r ON p.id = r.post_id 
       INNER JOIN topics t ON t.id = r.topic_id 
       INNER JOIN users u ON u.id = p.user_id 
@@ -549,10 +546,10 @@ impl<'a> FetchPosts<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
       Some(s) => match s {
         Sort::Latest => stmt += " ORDER BY created_at DESC",
         Sort::Oldest => stmt += " ORDER BY created_at ASC",
-        Sort::Highest => stmt = "WITH t(id, title, body, author_id, author_name, saved, created_at, topics, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score DESC ",
-        Sort::Lowest => stmt = "WITH t(id, title, body, author_id, author_name, saved, created_at, topics, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score ASC ",
+        Sort::Highest => stmt = "WITH t(id, title, body, author_id, author_name, saved, created_at, topics, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score DESC, created_at DESC ",
+        Sort::Lowest => stmt = "WITH t(id, title, body, author_id, author_name, saved, created_at, topics, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score ASC, created_at DESC ",
       },
-      _ => stmt += " ORDER BY created_at DESC",
+      None => stmt += " ORDER BY created_at DESC",
     }
 
     stmt += " LIMIT $2 OFFSET $3";
@@ -635,7 +632,15 @@ impl FetchPostsResponse {
         id,
         title,
         body,
-        topics,
+        topics: topics
+          .iter()
+          .map(|e| {
+            (
+              e.split(":").nth(0).unwrap_or_default().into(),
+              e.split(":").nth(1).unwrap_or_default().into(),
+            )
+          })
+          .collect(),
         author: PostAuthor {
           id: author_id,
           name: author_name,
