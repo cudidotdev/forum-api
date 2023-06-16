@@ -75,11 +75,7 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
       .db_client
       .query(
         &stmt,
-        &[
-          &self.username,
-          &self.hash_password()?,
-          &Utc::now().naive_utc(),
-        ],
+        &[&username, &self.hash_password()?, &Utc::now().naive_utc()],
       )
       .await
       .map_err(|e| json!({ "message": format!("e {}", e.to_string()) }))?
@@ -125,7 +121,7 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
       }));
     }
 
-    let username = self.username.as_ref().unwrap();
+    let username = self.username.as_ref().unwrap().trim();
     let password = self.password.as_ref().unwrap();
 
     if username.len() == 0 {
@@ -170,7 +166,8 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
     let username = self
       .username
       .as_ref()
-      .ok_or("Username is required".to_owned())?;
+      .ok_or("Username is required".to_owned())?
+      .trim();
 
     let stmt = self
       .get_username_exist_statement()
@@ -179,7 +176,7 @@ impl<'a> CreateAccountDetailsWithDBClient<'a> {
 
     self
       .db_client
-      .query(&stmt, &[username])
+      .query(&stmt, &[&username])
       .await
       .map_err(|_| "Cannot verify uniqueness of username".to_owned())?
       .get(0)
@@ -238,10 +235,12 @@ impl<'a> LoginDetailsWithDBClient<'a> {
       }));
     }
 
-    self.get_user_details(self.username.as_ref().unwrap()).await
+    self
+      .get_user_details(self.username.as_ref().unwrap().trim())
+      .await
   }
 
-  async fn get_user_details(&self, username: &String) -> Result<UserAuthDetails, Value> {
+  async fn get_user_details(&self, username: &str) -> Result<UserAuthDetails, Value> {
     let stmt = self
       .get_select_statement()
       .await
@@ -249,7 +248,7 @@ impl<'a> LoginDetailsWithDBClient<'a> {
 
     let vec_row = self
       .db_client
-      .query(&stmt, &[username])
+      .query(&stmt, &[&username])
       .await
       .map_err(|e| {
         json!({

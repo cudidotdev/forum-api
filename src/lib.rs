@@ -14,7 +14,12 @@ pub fn app(cfg: &mut ServiceConfig) {
     .default_service(web::to(|| async {
       HttpResponse::NotFound().json(json!({
         "success": false,
-        "message": "Route not found. Please check path or method used"
+        "message": "Route not found. Please check path or method used",
+        "error": {
+          "status": 404,
+          "name": "Route not found",
+          "message": "Route not found. Please check path or method used",
+        }
       }))
     }));
 }
