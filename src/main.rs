@@ -2,7 +2,6 @@ use std::env;
 
 use actix_web::{
   error,
-  guard::Head,
   http::header::{self, HeaderValue},
   web, App, HttpResponse, HttpServer,
 };
@@ -68,7 +67,7 @@ async fn main() -> std::io::Result<()> {
       .wrap(
         Cors::default()
           .allowed_origin_fn(|origin, _| {
-            let allowed_origin = env::var("ALLOW_ORIGIN").unwrap_or("http://0.0.0.0:3000".into());
+            let allowed_origin = env::var("CORS_ORIGIN").unwrap_or("http://0.0.0.0:3000".into());
             [
               HeaderValue::from_static("http://localhost:5173"),
               HeaderValue::from_static("http://127.0.0.1:5173"),
@@ -91,7 +90,7 @@ async fn main() -> std::io::Result<()> {
       .configure(app)
   })
   .workers(config.threads.unwrap_or(4))
-  .bind(("127.0.0.1", 8080));
+  .bind((config.server_ip, config.server_port));
 
   if let Err(e) = server {
     println!("It seems port is already taken. Check info below\n\n{e}");
@@ -106,5 +105,7 @@ async fn main() -> std::io::Result<()> {
 #[derive(Serialize, Deserialize, Clone)]
 struct Config {
   pub threads: Option<usize>,
+  pub server_ip: String,
+  pub server_port: u16,
   pub pg: deadpool_postgres::Config,
 }
