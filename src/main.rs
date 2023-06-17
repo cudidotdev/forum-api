@@ -1,5 +1,8 @@
+use std::env;
+
 use actix_web::{
   error,
+  guard::Head,
   http::header::{self, HeaderValue},
   web, App, HttpResponse, HttpServer,
 };
@@ -65,9 +68,12 @@ async fn main() -> std::io::Result<()> {
       .wrap(
         Cors::default()
           .allowed_origin_fn(|origin, _| {
+            let allowed_origin = env::var("ALLOW_ORIGIN").unwrap_or("http://0.0.0.0:3000".into());
             [
               HeaderValue::from_static("http://localhost:5173"),
               HeaderValue::from_static("http://127.0.0.1:5173"),
+              HeaderValue::from_str(&allowed_origin)
+                .unwrap_or(HeaderValue::from_static("http://0.0.0.0:3000")),
             ]
             .contains(origin)
           })
