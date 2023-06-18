@@ -90,7 +90,7 @@ async fn main() -> std::io::Result<()> {
       .configure(app)
   })
   .workers(config.threads.unwrap_or(4))
-  .bind((config.server_ip, config.server_port));
+  .bind(("0.0.0.0", config.server_port));
 
   if let Err(e) = server {
     println!("It seems port is already taken. Check info below\n\n{e}");
@@ -105,7 +105,6 @@ async fn main() -> std::io::Result<()> {
 #[derive(Serialize, Deserialize, Clone)]
 struct Config {
   pub threads: Option<usize>,
-  pub server_ip: String,
   pub server_port: u16,
   pub pg: deadpool_postgres::Config,
 }
