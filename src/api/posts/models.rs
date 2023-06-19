@@ -498,8 +498,8 @@ impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
     })
   }
 
-  pub async fn fetch_posts(&self) -> Result<Value, (StatusCode, Value)> {
-    let res = self
+  pub async fn fetch_posts(&self) -> Result<Vec<FetchPostsResponse>, (StatusCode, Value)> {
+    self
       .get_db_client()
       .query(
         &self.get_select_statement().await?,
@@ -519,14 +519,7 @@ impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
       })?
       .into_iter()
       .map(|r| FetchPostsResponse::from_row(&r))
-      .collect::<Result<Vec<_>, _>>()?;
-
-    serde_json::to_value(res).map_err(|e| {
-      (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        json!({"message": e.to_string()}),
-      )
-    })
+      .collect::<Result<Vec<_>, _>>()
   }
 }
 
@@ -561,8 +554,8 @@ impl<'a> FetchPosts<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
       )
     })
   }
-  pub async fn fetch_posts(&self) -> Result<Value, (StatusCode, Value)> {
-    let res = self
+  pub async fn fetch_posts(&self) -> Result<Vec<FetchPostsResponse>, (StatusCode, Value)> {
+    self
       .get_db_client()
       .query(
         &self.get_select_statement().await?,
@@ -583,14 +576,7 @@ impl<'a> FetchPosts<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
       })?
       .into_iter()
       .map(|r| FetchPostsResponse::from_row(&r))
-      .collect::<Result<Vec<_>, _>>()?;
-
-    serde_json::to_value(res).map_err(|e| {
-      (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        json!({"message": e.to_string()}),
-      )
-    })
+      .collect::<Result<Vec<_>, _>>()
   }
 }
 
