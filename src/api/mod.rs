@@ -1,10 +1,12 @@
 mod auth;
 mod posts;
+mod users;
 
 pub use auth::models::UserAuth;
 pub use auth::models::UserAuthDetails;
 pub use auth::view as auth;
 pub use posts::view as post;
+pub use users::view as user;
 
 pub mod handler_utils {
   use super::UserAuthDetails;

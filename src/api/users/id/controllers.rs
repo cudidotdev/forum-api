@@ -2,7 +2,9 @@ use actix_web::{
   web::{Data, Path},
   HttpResponse,
 };
+
 use deadpool_postgres::Pool;
+
 use serde_json::json;
 
 use crate::api::{
@@ -11,6 +13,10 @@ use crate::api::{
 };
 
 use super::models::{FetchPostsCreatedByUser, FetchPostsSavedByUser};
+
+pub async fn fetch_user(user_id: Path<i32>, db_pool: Data<Pool>) -> HttpResponse {
+  HttpResponse::Ok().body("working")
+}
 
 pub async fn fetch_posts_created_by_user(
   body: Path<FetchPostsCreatedByUser<NoDBClient, NoUserDetails>>,
@@ -39,12 +45,12 @@ pub async fn fetch_posts_created_by_user(
 
   match res {
     Ok(data) => HttpResponse::Ok().json(json!({
-      "success": false,
+      "success": true,
       "data": data,
     })),
 
     Err((s, v)) => HttpResponse::Ok().status(s).json(json!({
-      "success": true,
+      "success": false,
       "message": v["message"],
       "error": {
         "status": s.as_u16(),

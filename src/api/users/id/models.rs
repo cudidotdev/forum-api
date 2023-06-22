@@ -6,7 +6,7 @@ use tokio_postgres::Statement;
 
 use crate::api::{
   handler_utils::{NoDBClient, NoUserDetails, WithDBClient, WithUserDetails},
-  posts::models::FetchPostsResponse,
+  posts::FetchPostsResponse,
   UserAuthDetails,
 };
 
