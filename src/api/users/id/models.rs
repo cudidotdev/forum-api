@@ -1,8 +1,8 @@
 use actix_web::http::StatusCode;
 use deadpool_postgres::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio_postgres::Statement;
+use tokio_postgres::{Row, Statement};
 
 use crate::api::{
   handler_utils::{NoDBClient, NoUserDetails, WithDBClient, WithUserDetails},
@@ -11,12 +11,86 @@ use crate::api::{
 };
 
 #[derive(Deserialize)]
+pub struct FetchUserDetails<D> {
+  user_id: i32,
+  #[serde(skip_deserializing)]
+  db_client: D,
+}
+
+#[derive(Serialize)]
+pub struct UserDetails {
+  id: i32,
+  username: String,
+}
+
+impl<'a> FetchUserDetails<NoDBClient> {
+  pub fn add_db_client(self, db_client: &'a Client) -> FetchUserDetails<WithDBClient<'a>> {
+    FetchUserDetails {
+      user_id: self.user_id,
+      db_client: WithDBClient(db_client),
+    }
+  }
+}
+
+impl<'a> FetchUserDetails<WithDBClient<'a>> {
+  pub async fn fetch(&self) -> Result<UserDetails, (StatusCode, Value)> {
+    self
+      .get_db_client()
+      .query(&self.get_select_statement().await?, &[&self.user_id])
+      .await
+      .map_err(|e| {
+        (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          json!({"message": e.to_string()}),
+        )
+      })?
+      .into_iter()
+      .map(|r| UserDetails::from_row(&r))
+      .nth(0)
+      .ok_or((
+        StatusCode::NOT_FOUND,
+        json!({ "message": format!("No user found with id {}", self.user_id) }),
+      ))?
+  }
+
+  async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
+    let stmt = "SELECT id, username FROM users WHERE id = $1";
+
+    self.get_db_client().prepare(stmt).await.map_err(|e| {
+      (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({"message": e.to_string()}),
+      )
+    })
+  }
+
+  fn get_db_client(&self) -> &'a Client {
+    self.db_client.0
+  }
+}
+
+impl UserDetails {
+  pub fn from_row(row: &Row) -> Result<UserDetails, (StatusCode, Value)> {
+    let id = row.try_get::<&str, i32>("id");
+    let username = row.try_get::<&str, String>("username");
+
+    match (id, username) {
+      (Ok(id), Ok(username)) => Ok(UserDetails { id, username }),
+      _ => Err((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({"message":"Error converting postgres types" }),
+      )),
+    }
+  }
+}
+
+#[derive(Deserialize)]
 pub struct FetchPostsCreatedByUser<D, U> {
-  pub user_id: i32,
+  user_id: i32,
   #[serde(skip_deserializing)]
-  pub db_client: D,
+  db_client: D,
   #[serde(skip_deserializing)]
-  pub user_details: U,
+  user_details: U,
 }
 
 impl<'a, U> FetchPostsCreatedByUser<NoDBClient, U> {
@@ -139,11 +213,11 @@ impl<'a> FetchPostsCreatedByUser<WithDBClient<'a>, WithUserDetails<'a>> {
 
 #[derive(Deserialize)]
 pub struct FetchPostsSavedByUser<D, U> {
-  pub user_id: i32,
+  user_id: i32,
   #[serde(skip_deserializing)]
-  pub db_client: D,
+  db_client: D,
   #[serde(skip_deserializing)]
-  pub user_details: U,
+  user_details: U,
 }
 
 impl<'a, U> FetchPostsSavedByUser<NoDBClient, U> {

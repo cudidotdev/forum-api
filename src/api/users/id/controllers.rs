@@ -12,10 +12,41 @@ use crate::api::{
   UserAuth,
 };
 
-use super::models::{FetchPostsCreatedByUser, FetchPostsSavedByUser};
+use super::models::{FetchPostsCreatedByUser, FetchPostsSavedByUser, FetchUserDetails};
 
-pub async fn fetch_user(user_id: Path<i32>, db_pool: Data<Pool>) -> HttpResponse {
-  HttpResponse::Ok().body("working")
+pub async fn fetch_user(
+  body: Path<FetchUserDetails<NoDBClient>>,
+  db_pool: Data<Pool>,
+) -> HttpResponse {
+  let db_client_res = db_pool.get().await;
+
+  if let Err(e) = db_client_res {
+    return HttpResponse::InternalServerError().json(json!({
+      "success": false,
+      "message": e.to_string(),
+    }));
+  }
+
+  let db_client = db_client_res.unwrap();
+
+  let res = body.into_inner().add_db_client(&db_client).fetch().await;
+
+  match res {
+    Ok(data) => HttpResponse::Ok().json(json!({
+      "success": true,
+      "data": data,
+    })),
+
+    Err((s, v)) => HttpResponse::Ok().status(s).json(json!({
+      "success": false,
+      "message": v["message"],
+      "error": {
+        "status": s.as_u16(),
+        "message": v["message"],
+        "name": v["name"]
+      }
+    })),
+  }
 }
 
 pub async fn fetch_posts_created_by_user(
