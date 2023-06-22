@@ -221,6 +221,42 @@ impl<'a> FetchPostsSavedByUser<WithDBClient<'a>, NoUserDetails> {
 
 impl<'a> FetchPostsSavedByUser<WithDBClient<'a>, WithUserDetails<'a>> {
   pub async fn fetch_posts(&self) -> Result<Vec<FetchPostsResponse>, (StatusCode, Value)> {
-    todo!()
+    self
+      .get_db_client()
+      .query(
+        &self.get_select_statement().await?,
+        &[&self.user_id, &self.get_user_details().id],
+      )
+      .await
+      .map_err(|e| {
+        (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          json!({"message": e.to_string()}),
+        )
+      })?
+      .into_iter()
+      .map(|r| FetchPostsResponse::from_row(&r))
+      .collect::<Result<Vec<_>, _>>()
+  }
+
+  async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
+    let stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name,
+      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) topics, COUNT(DISTINCT c.*) comments, 0::BIGINT saves FROM posts p
+      INNER JOIN  posts_topics_relationship r ON p.id = r.post_id
+      INNER JOIN topics t ON t.id = r.topic_id
+      INNER JOIN users u ON u.id = p.user_id
+      LEFT JOIN saved_posts s ON s.post_id = p.id AND s.user_id = $2
+      LEFT JOIN saved_posts ss ON ss.post_id = p.id
+      LEFT JOIN post_comments c ON p.id = c.post_id
+      WHERE ss.user_id = $1
+      GROUP BY p.id, u.id, s.post_id
+      ORDER BY created_at DESC";
+
+    self.get_db_client().prepare(stmt).await.map_err(|e| {
+      (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({"message": e.to_string()}),
+      )
+    })
   }
 }
