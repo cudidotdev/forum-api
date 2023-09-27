@@ -469,7 +469,7 @@ impl<'a, U, V> FetchPosts<WithDBClient<'a>, U, V> {
 
 impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
   pub async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
-    let mut stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name, 
+    let mut stmt = "SELECT p.id, p.title, left(p.body, 100), u.id author_id, u.username author_name, 
      p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) hashtags, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT s.*) saves FROM posts p 
      INNER JOIN posts_hashtags_relationship r ON p.id = r.post_id 
      INNER JOIN hashtags t ON t.id = r.hashtag_id
