@@ -139,7 +139,6 @@ impl<'a> CreatePostDetails<WithDBClient<'a>, WithUserDetails<'a>, NotValidated> 
         let mut s = String::from(s.trim());
 
         s.make_ascii_lowercase();
-        s.get_mut(0..1).map(|a| a.make_ascii_uppercase());
 
         if RE.is_ok() {
           s = String::from(RE.as_ref().unwrap().replace_all(s.as_str(), "").to_string());
