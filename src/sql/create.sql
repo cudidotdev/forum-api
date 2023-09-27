@@ -21,25 +21,25 @@ CREATE TABLE IF NOT EXISTS posts (
 
 CREATE TYPE color AS ENUM ('green', 'red', 'blue', 'yellow', 'purple');
 
-CREATE TABLE IF NOT EXISTS topics (
+CREATE TABLE IF NOT EXISTS hashtags (
   id SERIAL PRIMARY KEY,
   name VARCHAR(50) UNIQUE NOT NULL,
   color color NOT NULL,
   created_at TIMESTAMP NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS posts_topics_relationship (
+CREATE TABLE IF NOT EXISTS posts_hashtags_relationship (
   post_id INT NOT NULL,
-  topic_id INT NOT NULL,
+  hashtag_id INT NOT NULL,
 
-  PRIMARY KEY(post_id, topic_id),
+  PRIMARY KEY(post_id, hashtag_id),
 
   FOREIGN KEY (post_id) 
     REFERENCES posts(id)
     ON DELETE CASCADE,
 
-  FOREIGN KEY (topic_id)
-    REFERENCES topics(id)
+  FOREIGN KEY (hashtag_id)
+    REFERENCES hashtags(id)
     ON DELETE CASCADE
 );
 

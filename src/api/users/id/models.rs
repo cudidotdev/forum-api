@@ -150,9 +150,9 @@ impl<'a> FetchPostsCreatedByUser<WithDBClient<'a>, NoUserDetails> {
 
   async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
     let stmt ="SELECT p.id, p.title, p.body, u.id author_id, u.username author_name, 
-     p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) topics, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT s.*) saves FROM posts p 
-     INNER JOIN posts_topics_relationship r ON p.id = r.post_id 
-     INNER JOIN topics t ON t.id = r.topic_id
+     p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) hashtags, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT s.*) saves FROM posts p 
+     INNER JOIN posts_hashtags_relationship r ON p.id = r.post_id 
+     INNER JOIN hashtags t ON t.id = r.hashtag_id
      INNER JOIN users u ON u.id = p.user_id
      LEFT JOIN post_comments c ON p.id = c.post_id
      LEFT JOIN saved_posts s ON s.post_id = p.id
@@ -191,9 +191,9 @@ impl<'a> FetchPostsCreatedByUser<WithDBClient<'a>, WithUserDetails<'a>> {
 
   async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
     let stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name,
-      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) topics, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT ss.*) saves FROM posts p
-      INNER JOIN  posts_topics_relationship r ON p.id = r.post_id
-      INNER JOIN topics t ON t.id = r.topic_id
+      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) hashtags, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT ss.*) saves FROM posts p
+      INNER JOIN  posts_hashtags_relationship r ON p.id = r.post_id
+      INNER JOIN hashtags t ON t.id = r.hashtag_id
       INNER JOIN users u ON u.id = p.user_id
       LEFT JOIN saved_posts s ON s.post_id = p.id AND s.user_id = $2
       LEFT JOIN saved_posts ss ON ss.post_id = p.id
@@ -274,9 +274,9 @@ impl<'a> FetchPostsSavedByUser<WithDBClient<'a>, NoUserDetails> {
 
   async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
     let stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name, 
-     p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) topics, COUNT(DISTINCT c.*) comments, 0::BIGINT saves FROM posts p 
-     INNER JOIN posts_topics_relationship r ON p.id = r.post_id 
-     INNER JOIN topics t ON t.id = r.topic_id
+     p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) hashtags, COUNT(DISTINCT c.*) comments, 0::BIGINT saves FROM posts p 
+     INNER JOIN posts_hashtags_relationship r ON p.id = r.post_id 
+     INNER JOIN hashtags t ON t.id = r.hashtag_id
      INNER JOIN users u ON u.id = p.user_id
      LEFT JOIN post_comments c ON p.id = c.post_id
      LEFT JOIN saved_posts s ON s.post_id = p.id
@@ -315,9 +315,9 @@ impl<'a> FetchPostsSavedByUser<WithDBClient<'a>, WithUserDetails<'a>> {
 
   async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
     let stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name,
-      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) topics, COUNT(DISTINCT c.*) comments, 0::BIGINT saves FROM posts p
-      INNER JOIN  posts_topics_relationship r ON p.id = r.post_id
-      INNER JOIN topics t ON t.id = r.topic_id
+      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) hashtags, COUNT(DISTINCT c.*) comments, 0::BIGINT saves FROM posts p
+      INNER JOIN  posts_hashtags_relationship r ON p.id = r.post_id
+      INNER JOIN hashtags t ON t.id = r.hashtag_id
       INNER JOIN users u ON u.id = p.user_id
       LEFT JOIN saved_posts s ON s.post_id = p.id AND s.user_id = $2
       LEFT JOIN saved_posts ss ON ss.post_id = p.id

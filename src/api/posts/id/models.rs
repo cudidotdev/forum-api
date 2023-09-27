@@ -46,9 +46,9 @@ impl<'a> FetchPost<'a> {
 
   async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
     let stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name, 
-      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name||':'||t.color) topics, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT ss.*) saves FROM posts p 
-      INNER JOIN  posts_topics_relationship r ON p.id = r.post_id 
-      INNER JOIN topics t ON t.id = r.topic_id 
+      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name||':'||t.color) hashtags, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT ss.*) saves FROM posts p 
+      INNER JOIN  posts_hashtags_relationship r ON p.id = r.post_id 
+      INNER JOIN hashtags t ON t.id = r.hashtag_id 
       INNER JOIN users u ON u.id = p.user_id 
       LEFT JOIN saved_posts s ON s.post_id = p.id AND s.user_id = $2 
       LEFT JOIN saved_posts ss ON ss.post_id = p.id
@@ -259,7 +259,6 @@ impl<'a> CreateComment<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
 pub struct FetchComments<D, V> {
   sort: Option<Sort>,
   page: Option<i64>,
-  topics: Option<Vec<String>>,
   #[serde(skip_deserializing)]
   post_id: i32,
   #[serde(skip_deserializing)]
@@ -286,7 +285,6 @@ impl<'a> FetchComments<WithDBClient<'a>, NotValidated> {
     Ok(FetchComments {
       sort: self.sort,
       page: self.page,
-      topics: self.topics,
       post_id: self.post_id,
       db_client: self.db_client,
       validated: PhantomData,
@@ -303,7 +301,6 @@ impl FetchComments<NoDBClient, NotValidated> {
     FetchComments {
       sort: self.sort,
       page: self.page,
-      topics: self.topics,
       post_id,
       db_client: WithDBClient(db_client),
       validated: PhantomData,

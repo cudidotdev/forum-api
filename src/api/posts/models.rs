@@ -21,7 +21,7 @@ use tokio_postgres::{Row, Statement};
 #[derive(Serialize, Deserialize)]
 pub struct CreatePostDetails<D, U, V> {
   title: String,
-  topics: Vec<String>,
+  hashtags: Vec<String>,
   body: String,
   #[serde(skip_deserializing)]
   db_client: D,
@@ -63,7 +63,7 @@ impl<U, V> CreatePostDetails<NoDBClient, U, V> {
   pub fn add_db_client(self, db_client: &Client) -> CreatePostDetails<WithDBClient, U, V> {
     CreatePostDetails {
       title: self.title,
-      topics: self.topics,
+      hashtags: self.hashtags,
       body: self.body,
       db_client: WithDBClient(db_client),
       user_details: self.user_details,
@@ -79,7 +79,7 @@ impl<D, V> CreatePostDetails<D, NoUserDetails, V> {
   ) -> CreatePostDetails<D, WithUserDetails, V> {
     CreatePostDetails {
       title: self.title,
-      topics: self.topics,
+      hashtags: self.hashtags,
       body: self.body,
       db_client: self.db_client,
       user_details: WithUserDetails(user_details),
@@ -132,8 +132,8 @@ impl<'a> CreatePostDetails<WithDBClient<'a>, WithUserDetails<'a>, NotValidated> 
 
     let mut all_under_51 = true;
 
-    self.topics = self
-      .topics
+    self.hashtags = self
+      .hashtags
       .iter()
       .map(|s| {
         let mut s = String::from(s.trim());
@@ -155,20 +155,20 @@ impl<'a> CreatePostDetails<WithDBClient<'a>, WithUserDetails<'a>, NotValidated> 
     if !all_under_51 {
       return Err((
         StatusCode::BAD_REQUEST,
-        json!({"message": "Topic names should not be more than 50 characters"}),
+        json!({"message": "Hashtags should not be more than 50 characters"}),
       ));
     }
 
-    if self.topics.len() == 0 {
+    if self.hashtags.len() == 0 {
       return Err((
         StatusCode::BAD_REQUEST,
-        json!({"name": "topics", "message": "Please add topics"}),
+        json!({"name": "hashtags", "message": "Please add hashtags"}),
       ));
     }
 
     Ok(CreatePostDetails {
       title: self.title,
-      topics: self.topics,
+      hashtags: self.hashtags,
       body: self.body,
       db_client: self.db_client,
       user_details: self.user_details,
@@ -199,11 +199,11 @@ impl<'a, U> CreatePostDetails<WithDBClient<'a>, U, Validated> {
     })
   }
 
-  async fn get_insert_topics_statement(&self) -> Result<Statement, (StatusCode, Value)> {
-    let mut stmt = "INSERT INTO topics (name, color, created_at) VALUES ".to_owned();
+  async fn get_insert_hashtags_statement(&self) -> Result<Statement, (StatusCode, Value)> {
+    let mut stmt = "INSERT INTO hashtags (name, color, created_at) VALUES ".to_owned();
 
     let mut i = 0;
-    let n = self.topics.len() * 3;
+    let n = self.hashtags.len() * 3;
 
     while i < n {
       stmt.push_str(&format!("(${}, ${}, ${})", i + 1, i + 2, i + 3));
@@ -223,10 +223,10 @@ impl<'a, U> CreatePostDetails<WithDBClient<'a>, U, Validated> {
     })
   }
 
-  fn get_insert_topics_params(&self) -> Vec<Box<dyn ToSql + Sync>> {
+  fn get_insert_hashtags_params(&self) -> Vec<Box<dyn ToSql + Sync>> {
     let mut v: Vec<Box<dyn ToSql + Sync>> = Vec::new();
 
-    self.topics.iter().for_each(|t| {
+    self.hashtags.iter().for_each(|t| {
       v.push(Box::new(t.to_owned()));
       v.push(Box::new(self.get_random_color()));
       v.push(Box::new(Utc::now().naive_utc()));
@@ -235,13 +235,13 @@ impl<'a, U> CreatePostDetails<WithDBClient<'a>, U, Validated> {
     v
   }
 
-  async fn get_insert_post_and_topics_ids_statement(
+  async fn get_insert_post_and_hashtags_ids_statement(
     &self,
   ) -> Result<Statement, (StatusCode, Value)> {
-    let mut stmt = "INSERT INTO posts_topics_relationship (post_id, topic_id) (SELECT $1, id FROM topics WHERE name IN (".to_owned();
+    let mut stmt = "INSERT INTO posts_hashtags_relationship (post_id, hashtag_id) (SELECT $1, id FROM hashtags WHERE name IN (".to_owned();
 
     let mut i = 1;
-    let n = self.topics.len() + 1;
+    let n = self.hashtags.len() + 1;
 
     while i < n {
       i += 1;
@@ -261,10 +261,10 @@ impl<'a, U> CreatePostDetails<WithDBClient<'a>, U, Validated> {
     })
   }
 
-  fn get_insert_post_and_topics_ids_params(&self, post_id: &i32) -> Vec<Box<dyn ToSql + Sync>> {
+  fn get_insert_post_and_hashtags_ids_params(&self, post_id: &i32) -> Vec<Box<dyn ToSql + Sync>> {
     let mut v: Vec<Box<dyn ToSql + Sync>> = vec![Box::new(*post_id)];
 
-    self.topics.iter().for_each(|t_id| {
+    self.hashtags.iter().for_each(|t_id| {
       v.push(Box::new(String::from(t_id)));
     });
 
@@ -274,11 +274,11 @@ impl<'a, U> CreatePostDetails<WithDBClient<'a>, U, Validated> {
 
 impl<'a> CreatePostDetails<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
   pub async fn create_post(&self) -> Result<i32, (StatusCode, Value)> {
-    let res = future::join(self.insert_post(), self.insert_topics()).await;
+    let res = future::join(self.insert_post(), self.insert_hashtags()).await;
 
     let post_id = res.0?;
 
-    self.insert_post_and_topics_ids(post_id).await?;
+    self.insert_post_and_hashtags_ids(post_id).await?;
 
     Ok(post_id)
   }
@@ -316,12 +316,12 @@ impl<'a> CreatePostDetails<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
       })
   }
 
-  async fn insert_topics(&self) -> Result<(), (StatusCode, Value)> {
+  async fn insert_hashtags(&self) -> Result<(), (StatusCode, Value)> {
     self
       .get_db_client()
       .query_raw(
-        &self.get_insert_topics_statement().await?,
-        self.get_insert_topics_params(),
+        &self.get_insert_hashtags_statement().await?,
+        self.get_insert_hashtags_params(),
       )
       .await
       .map_err(|e| {
@@ -341,12 +341,12 @@ impl<'a> CreatePostDetails<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
       .map(|_| ())
   }
 
-  async fn insert_post_and_topics_ids(&self, post_id: i32) -> Result<(), (StatusCode, Value)> {
+  async fn insert_post_and_hashtags_ids(&self, post_id: i32) -> Result<(), (StatusCode, Value)> {
     self
       .get_db_client()
       .query_raw(
-        &self.get_insert_post_and_topics_ids_statement().await?,
-        self.get_insert_post_and_topics_ids_params(&post_id),
+        &self.get_insert_post_and_hashtags_ids_statement().await?,
+        self.get_insert_post_and_hashtags_ids_params(&post_id),
       )
       .await
       .map_err(|e| {
@@ -364,7 +364,7 @@ pub struct FetchPosts<D, U, V> {
   sort: Option<Sort>,
   limit: Option<i64>,
   page: Option<i64>,
-  topics: Option<Vec<String>>,
+  hashtags: Option<Vec<String>>,
   #[serde(skip_deserializing)]
   db_client: D,
   #[serde(skip_deserializing)]
@@ -387,7 +387,7 @@ pub struct FetchPostsResponse {
   id: i32,
   title: String,
   body: String,
-  topics: Vec<(String, String)>,
+  hashtags: Vec<(String, String)>,
   author: PostAuthor,
   saved: bool,
   created_at: NaiveDateTime,
@@ -416,7 +416,7 @@ impl<D, U> FetchPosts<D, U, NotValidated> {
       sort: self.sort,
       limit: self.limit,
       page: self.page,
-      topics: self.topics,
+      hashtags: self.hashtags,
       db_client: self.db_client,
       user_details: self.user_details,
       validated: PhantomData,
@@ -430,7 +430,7 @@ impl<U, V> FetchPosts<NoDBClient, U, V> {
       sort: self.sort,
       limit: self.limit,
       page: self.page,
-      topics: self.topics,
+      hashtags: self.hashtags,
       db_client: WithDBClient(db_client),
       user_details: self.user_details,
       validated: PhantomData,
@@ -447,7 +447,7 @@ impl<D, V> FetchPosts<D, NoUserDetails, V> {
       sort: self.sort,
       limit: self.limit,
       page: self.page,
-      topics: self.topics,
+      hashtags: self.hashtags,
       db_client: self.db_client,
       user_details: WithUserDetails(user_details),
       validated: PhantomData,
@@ -470,9 +470,9 @@ impl<'a, U, V> FetchPosts<WithDBClient<'a>, U, V> {
 impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
   pub async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
     let mut stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name, 
-     p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) topics, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT s.*) saves FROM posts p 
-     INNER JOIN posts_topics_relationship r ON p.id = r.post_id 
-     INNER JOIN topics t ON t.id = r.topic_id
+     p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) hashtags, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT s.*) saves FROM posts p 
+     INNER JOIN posts_hashtags_relationship r ON p.id = r.post_id 
+     INNER JOIN hashtags t ON t.id = r.hashtag_id
      INNER JOIN users u ON u.id = p.user_id
      LEFT JOIN post_comments c ON p.id = c.post_id
      LEFT JOIN saved_posts s ON s.post_id = p.id
@@ -482,8 +482,8 @@ impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
       Some(s) => match s {
         Sort::Latest => stmt += " ORDER BY created_at DESC",
         Sort::Oldest => stmt += " ORDER BY created_at ASC",
-        Sort::Highest => stmt = "WITH t(id, title, body, author_id, author_name, created_at, topics, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score DESC, created_at DESC ",
-        Sort::Lowest => stmt = "WITH t(id, title, body, author_id, author_name, created_at, topics, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score ASC, created_at DESC ",
+        Sort::Highest => stmt = "WITH t(id, title, body, author_id, author_name, created_at, hashtags, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score DESC, created_at DESC ",
+        Sort::Lowest => stmt = "WITH t(id, title, body, author_id, author_name, created_at, hashtags, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score ASC, created_at DESC ",
       },
       None => stmt += " ORDER BY created_at DESC",
     }
@@ -526,9 +526,9 @@ impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
 impl<'a> FetchPosts<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
   async fn get_select_statement(&self) -> Result<Statement, (StatusCode, Value)> {
     let mut stmt = "SELECT p.id, p.title, p.body, u.id author_id, u.username author_name, 
-      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) topics, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT ss.*) saves FROM posts p 
-      INNER JOIN  posts_topics_relationship r ON p.id = r.post_id 
-      INNER JOIN topics t ON t.id = r.topic_id 
+      (s.post_id IS NOT NULL) saved, p.created_at, ARRAY_AGG(DISTINCT t.name ||':'|| t.color::TEXT) hashtags, COUNT(DISTINCT c.*) comments, COUNT(DISTINCT ss.*) saves FROM posts p 
+      INNER JOIN  posts_hashtags_relationship r ON p.id = r.post_id 
+      INNER JOIN hashtags t ON t.id = r.hashtag_id 
       INNER JOIN users u ON u.id = p.user_id 
       LEFT JOIN saved_posts s ON s.post_id = p.id AND s.user_id = $1 
       LEFT JOIN saved_posts ss ON ss.post_id = p.id
@@ -539,8 +539,8 @@ impl<'a> FetchPosts<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
       Some(s) => match s {
         Sort::Latest => stmt += " ORDER BY created_at DESC",
         Sort::Oldest => stmt += " ORDER BY created_at ASC",
-        Sort::Highest => stmt = "WITH t(id, title, body, author_id, author_name, saved, created_at, topics, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score DESC, created_at DESC ",
-        Sort::Lowest => stmt = "WITH t(id, title, body, author_id, author_name, saved, created_at, topics, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score ASC, created_at DESC ",
+        Sort::Highest => stmt = "WITH t(id, title, body, author_id, author_name, saved, created_at, hashtags, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score DESC, created_at DESC ",
+        Sort::Lowest => stmt = "WITH t(id, title, body, author_id, author_name, saved, created_at, hashtags, comments, saves) AS ( ".to_owned() + &stmt + " ) SELECT t.*, (t.comments + 2 * t.saves) score FROM t ORDER BY score ASC, created_at DESC ",
       },
       None => stmt += " ORDER BY created_at DESC",
     }
@@ -585,7 +585,7 @@ impl FetchPostsResponse {
     let id = row.try_get::<&str, i32>("id");
     let title = row.try_get::<&str, String>("title");
     let body = row.try_get::<&str, String>("body");
-    let topics = row.try_get::<&str, Vec<String>>("topics");
+    let hashtags = row.try_get::<&str, Vec<String>>("hashtags");
     let author_name = row.try_get::<&str, String>("author_name");
     let author_id = row.try_get::<&str, i32>("author_id");
     let comments = row.try_get::<&str, i64>("comments");
@@ -597,7 +597,7 @@ impl FetchPostsResponse {
       id,
       title,
       body,
-      topics,
+      hashtags,
       author_id,
       comments,
       saves,
@@ -608,7 +608,7 @@ impl FetchPostsResponse {
         Ok(id),
         Ok(title),
         Ok(body),
-        Ok(topics),
+        Ok(hashtags),
         Ok(author_id),
         Ok(comments),
         Ok(saves),
@@ -618,7 +618,7 @@ impl FetchPostsResponse {
         id,
         title,
         body,
-        topics: topics
+        hashtags: hashtags
           .iter()
           .map(|e| {
             (
