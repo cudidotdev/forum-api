@@ -363,7 +363,7 @@ pub struct FetchPosts<D, U, V> {
   sort: Option<Sort>,
   limit: Option<i64>,
   page: Option<i64>,
-  hashtags: Option<Vec<String>>,
+  hashtag: Option<String>,
   #[serde(skip_deserializing)]
   db_client: D,
   #[serde(skip_deserializing)]
@@ -415,7 +415,7 @@ impl<D, U> FetchPosts<D, U, NotValidated> {
       sort: self.sort,
       limit: self.limit,
       page: self.page,
-      hashtags: self.hashtags,
+      hashtag: self.hashtag,
       db_client: self.db_client,
       user_details: self.user_details,
       validated: PhantomData,
@@ -429,7 +429,7 @@ impl<U, V> FetchPosts<NoDBClient, U, V> {
       sort: self.sort,
       limit: self.limit,
       page: self.page,
-      hashtags: self.hashtags,
+      hashtag: self.hashtag,
       db_client: WithDBClient(db_client),
       user_details: self.user_details,
       validated: PhantomData,
@@ -446,7 +446,7 @@ impl<D, V> FetchPosts<D, NoUserDetails, V> {
       sort: self.sort,
       limit: self.limit,
       page: self.page,
-      hashtags: self.hashtags,
+      hashtag: self.hashtag,
       db_client: self.db_client,
       user_details: WithUserDetails(user_details),
       validated: PhantomData,
@@ -475,6 +475,7 @@ impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
      INNER JOIN users u ON u.id = p.user_id
      LEFT JOIN post_comments c ON p.id = c.post_id
      LEFT JOIN saved_posts s ON s.post_id = p.id
+     WHERE CASE WHEN $3 != '' THEN (t.name = $3) ELSE 1 = 1 END
      GROUP BY p.id, u.id".to_owned();
 
     match self.sort.clone() {
@@ -505,6 +506,7 @@ impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
         &[
           self.limit.as_ref().unwrap_or(&20),
           &((self.page.as_ref().unwrap_or(&1) - &1) * self.limit.as_ref().unwrap_or(&20)),
+          self.hashtag.as_ref().unwrap_or(&"".to_owned()),
         ],
       )
       .await
@@ -532,6 +534,7 @@ impl<'a> FetchPosts<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
       LEFT JOIN saved_posts s ON s.post_id = p.id AND s.user_id = $1 
       LEFT JOIN saved_posts ss ON ss.post_id = p.id
       LEFT JOIN post_comments c ON p.id = c.post_id
+      WHERE CASE WHEN $4 != '' THEN (t.name = $4) ELSE 1 = 1 END
       GROUP BY p.id, u.id, s.post_id".to_owned();
 
     match self.sort.clone() {
@@ -562,6 +565,7 @@ impl<'a> FetchPosts<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
           &self.get_user_details().id,
           self.limit.as_ref().unwrap_or(&20),
           &((self.page.as_ref().unwrap_or(&1) - &1) * self.limit.as_ref().unwrap_or(&20)),
+          self.hashtag.as_ref().unwrap_or(&"".to_owned()),
         ],
       )
       .await
