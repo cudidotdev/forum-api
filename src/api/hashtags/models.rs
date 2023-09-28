@@ -68,9 +68,6 @@ impl TrendingHashtagsResponse {
       .try_get::<&str, String>("color")
       .map_err(|_| json!({"message": "Error converting color postgres to rust type"}))?;
 
-    Ok(json!({
-      "name": name,
-      "color": color
-    }))
+    Ok(json!((name, color)))
   }
 }
