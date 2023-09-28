@@ -12,6 +12,7 @@ pub fn app(cfg: &mut ServiceConfig) {
     .service(web::scope("/auth").configure(api::auth))
     .service(web::scope("/posts").configure(api::post))
     .service(web::scope("/users").configure(api::user))
+    .service(web::scope("/hashtags").configure(api::hashtags))
     .default_service(web::to(|| async {
       HttpResponse::NotFound().json(json!({
         "success": false,
