@@ -475,8 +475,9 @@ impl<'a> FetchPosts<WithDBClient<'a>, NoUserDetails, Validated> {
      INNER JOIN users u ON u.id = p.user_id
      LEFT JOIN post_comments c ON p.id = c.post_id
      LEFT JOIN saved_posts s ON s.post_id = p.id
-     WHERE CASE WHEN $3 != '' THEN (t.name = $3) ELSE 1 = 1 END
-     GROUP BY p.id, u.id".to_owned();
+     GROUP BY p.id, u.id
+     HAVING CASE WHEN $3 != '' THEN $3 = ANY(ARRAY_AGG(t.name)) ELSE 1 = 1 END
+     ".to_owned();
 
     match self.sort.clone() {
       Some(s) => match s {
@@ -534,8 +535,9 @@ impl<'a> FetchPosts<WithDBClient<'a>, WithUserDetails<'a>, Validated> {
       LEFT JOIN saved_posts s ON s.post_id = p.id AND s.user_id = $1 
       LEFT JOIN saved_posts ss ON ss.post_id = p.id
       LEFT JOIN post_comments c ON p.id = c.post_id
-      WHERE CASE WHEN $4 != '' THEN (t.name = $4) ELSE 1 = 1 END
-      GROUP BY p.id, u.id, s.post_id".to_owned();
+      GROUP BY p.id, u.id, s.post_id
+      HAVING CASE WHEN $4 != '' THEN $4 = ANY(ARRAY_AGG(t.name)) ELSE 1 = 1 END
+      ".to_owned();
 
     match self.sort.clone() {
       Some(s) => match s {
