@@ -94,7 +94,7 @@ ALTER SEQUENCE public.post_comments_id_seq OWNED BY public.post_comments.id;
 CREATE TABLE public.posts (
     id integer NOT NULL,
     title character varying(100) NOT NULL,
-    body character varying(1000) NOT NULL,
+    body character varying(5000) NOT NULL,
     user_id integer NOT NULL,
     created_at timestamp without time zone NOT NULL
 );

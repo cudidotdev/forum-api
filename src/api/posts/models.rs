@@ -118,14 +118,12 @@ impl<'a> CreatePostDetails<WithDBClient<'a>, WithUserDetails<'a>, NotValidated> 
         json!({"name": "title", "message": "Post title should not have more 100 characters"}),
       ));
     }
-
-    if self.body.len() > 1000 {
+    if self.body.len() > 5000 {
       return Err((
         StatusCode::BAD_REQUEST,
-        json!({"name": "body", "message": "Post body should not have more 1000 characters"}),
+        json!({"name": "body", "message": "Post body should not have more 5000 characters"}),
       ));
     }
-
     lazy_static! {
       static ref RE: Result<Regex, regex::Error> = Regex::new(r"[^A-Za-z\s]+");
     }
