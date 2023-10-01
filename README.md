@@ -51,15 +51,15 @@ To set up postgresql, first we create the postgres user and forum database. If y
 ```bash
   psql -f user.sql -U postgres -W 
 ```
-This may produce an error, if you do not have peer authentication set up of user 'postgres'.
-If it fails, you can copy the content of `user.sql` and paste in your postgres shell, in pgadmin or any of your postgres IDE.
+This may produce an error, if you do not have password authentication set up of user 'postgres'.
+If it fails, you can copy the content of `user.sql` and paste in your postgres shell, in pgadmin or any of your postgres IDE. Or you can switch to your postgres user and run the above code without `-W` flag.
 
 Next, you will have to create postgres shema. To do that, run
 ```bash
   psql -f schema.sql -U forum -W 
 ```
 You will have to enter the passowrd you created for user forum.
-This may produce an error, if you do not have peer authentication set up for any user.
+This may produce an error, if you do not have password authentication set up for any user.
 If it fails, you can copy the content of `schema.sql` and paste in your postgres shell, in pgadmin or any of your postgres IDE.
 
 You can then build your rust binaries with 
