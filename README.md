@@ -47,6 +47,8 @@ SERVER_PORT = 8080
 In your `.env` file, you can edit `PG.PASSWORD` field. But it's better to leave the `PG.USER` and `PG.DBNAME` as given. If you edited `PG.PASSWORD` make sure to edit the `user.sql` file before proceeding with the postgres setup. The `schema.sql` file uses the user `forum`, so you can edit all that too, if you wish to change the user.
 
 ### Set up postgres
+First, cd into the `forum-api` directory.
+
 To set up postgresql, first we create the postgres user and forum database. If you edited `PG.PASSWORD` update `user.sql` file with your new password
 ```bash
   psql -f user.sql -U postgres -W 
